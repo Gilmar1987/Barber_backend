@@ -1,0 +1,286 @@
+# [Domínio: core] [Skill: service]
+"""
+📖 MANIFESTO (Skill 03 - Service):
+"Toda a inteligência reside no Service ou em handlers de eventos assíncronos."
+
+✅ Regras seguidas:
+- Services recebem DTOs Pydantic (não Dict)
+- Services retornam DTOs específicos (sem Any)
+- Services não acessam request HTTP
+- Services disparam eventos via dispatch_event
+"""
+import logging
+from typing import Optional
+from uuid import UUID
+
+from apps.core.dtos import (
+    ServiceResultListDTO,
+    ServiceResultMessageDTO,
+    ServiceResultSingleDTO,
+    UsuarioCreateDTO,
+    UsuarioResponseDTO,
+    UsuarioUpdateDTO,
+)
+from apps.core.repository import UsuarioRepository
+from common.events import EventType, dispatch_event
+from common.exceptions import (
+    DomainException,
+    DuplicateResourceException,
+    UserNotFoundException,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class UsuarioService:
+    """Service para operações com usuários."""
+    
+    def __init__(self, repository: Optional[UsuarioRepository] = None):
+        self.repository = repository or UsuarioRepository()
+    
+    def criar_usuario(
+        self,
+        dto: UsuarioCreateDTO,
+        user_id: Optional[UUID] = None
+    ) -> ServiceResultSingleDTO:
+        """Cria novo usuário com validações de negócio."""
+        try:
+            if self.repository.exists_by_cpf(dto.cpf):
+                raise DuplicateResourceException('cpf', dto.cpf)
+            
+            if self.repository.exists_by_email(dto.email):
+                raise DuplicateResourceException('email', dto.email)
+            
+            user = self.repository.create(dto, created_by=user_id)
+            
+            logger.info(f"Usuário criado: {user.id}")
+            
+            response_dto = UsuarioResponseDTO(
+                id=user.id,
+                username=user.username,
+                first_name=user.first_name or "",
+                last_name=user.last_name or "",
+                email=user.email,
+                cpf_masked=user.get_cpf_masked(),
+                tipo_usuario=user.tipo_usuario,
+                telefone=user.telefone,
+                date_joined=user.date_joined.isoformat(),
+            )
+            
+            result = ServiceResultSingleDTO(success=True, data=response_dto)
+            
+            # dispatch_event fora do bloco de persistência:
+            # o usuário já foi commitado; falha no evento não reverte o dado.
+            try:
+                dispatch_event(
+                    event_type=EventType.USER_CREATED,
+                    tenant_id=user_id or user.id,
+                    user_id=user.id,
+                    data={
+                        'user_id': str(user.id),
+                        'username': user.username,
+                        'email': user.email,
+                        'tipo_usuario': user.tipo_usuario,
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Falha ao disparar evento USER_CREATED: {e}", exc_info=True)
+            
+            return result
+        
+        except DomainException as e:
+            return ServiceResultSingleDTO(
+                success=False,
+                error=e.message,
+                details=e.details
+            )
+        except Exception as e:
+            logger.error(f"Erro ao criar usuário: {e}", exc_info=True)
+            return ServiceResultSingleDTO(
+                success=False,
+                error="Erro interno ao criar usuário"
+            )
+    
+    def atualizar_usuario(
+        self,
+        user_id: UUID,
+        dto: UsuarioUpdateDTO,
+        updated_by: Optional[UUID] = None
+    ) -> ServiceResultSingleDTO:
+        """Atualiza usuário existente com validações de negócio."""
+        try:
+            user = self.repository.get_by_id(user_id)
+            if not user:
+                raise UserNotFoundException(str(user_id))
+            
+            if dto.email and self.repository.exists_by_email(dto.email, exclude_id=user_id):
+                raise DuplicateResourceException('email', dto.email)
+            
+            updated_user = self.repository.update(user, dto, updated_by=updated_by)
+            
+            logger.info(f"Usuário atualizado: {updated_user.id}")
+            
+            response_dto = UsuarioResponseDTO(
+                id=updated_user.id,
+                username=updated_user.username,
+                first_name=updated_user.first_name or "",
+                last_name=updated_user.last_name or "",
+                email=updated_user.email,
+                cpf_masked=updated_user.get_cpf_masked(),
+                tipo_usuario=updated_user.tipo_usuario,
+                telefone=updated_user.telefone,
+                date_joined=updated_user.date_joined.isoformat(),
+            )
+            
+            result = ServiceResultSingleDTO(success=True, data=response_dto)
+            
+            try:
+                dispatch_event(
+                    event_type=EventType.USER_UPDATED,
+                    tenant_id=updated_by or updated_user.id,
+                    user_id=updated_user.id,
+                    data={
+                        'user_id': str(updated_user.id),
+                        'fields_updated': [
+                            field for field, value in dto.model_dump().items()
+                            if value is not None
+                        ]
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Falha ao disparar evento USER_UPDATED: {e}", exc_info=True)
+            
+            return result
+        
+        except UserNotFoundException as e:
+            return ServiceResultSingleDTO(
+                success=False,
+                error=e.message,
+                details=e.details
+            )
+        except DomainException as e:
+            return ServiceResultSingleDTO(
+                success=False,
+                error=e.message,
+                details=e.details
+            )
+        except Exception as e:
+            logger.error(f"Erro ao atualizar usuário: {e}", exc_info=True)
+            return ServiceResultSingleDTO(
+                success=False,
+                error="Erro interno ao atualizar usuário"
+            )
+    
+    def obter_usuario(self, user_id: UUID) -> ServiceResultSingleDTO:
+        """Retorna dados de um usuário específico."""
+        try:
+            user = self.repository.get_by_id(user_id)
+            if not user:
+                raise UserNotFoundException(str(user_id))
+            
+            response_dto = UsuarioResponseDTO(
+                id=user.id,
+                username=user.username,
+                first_name=user.first_name or "",
+                last_name=user.last_name or "",
+                email=user.email,
+                cpf_masked=user.get_cpf_masked(),
+                tipo_usuario=user.tipo_usuario,
+                telefone=user.telefone,
+                date_joined=user.date_joined.isoformat(),
+            )
+            
+            return ServiceResultSingleDTO(
+                success=True,
+                data=response_dto
+            )
+        
+        except UserNotFoundException as e:
+            return ServiceResultSingleDTO(
+                success=False,
+                error=e.message,
+                details=e.details
+            )
+        except Exception as e:
+            logger.error(f"Erro ao obter usuário: {e}", exc_info=True)
+            return ServiceResultSingleDTO(
+                success=False,
+                error="Erro interno ao obter usuário"
+            )
+    
+    def listar_usuarios(
+        self,
+        tipo_usuario: Optional[str] = None
+    ) -> ServiceResultListDTO:
+        """Lista usuários, opcionalmente filtrando por tipo."""
+        try:
+            users = self.repository.get_all_by_tipo(tipo_usuario)
+            
+            response_dtos = [
+                UsuarioResponseDTO(
+                    id=user.id,
+                    username=user.username,
+                    first_name=user.first_name or "",
+                    last_name=user.last_name or "",
+                    email=user.email,
+                    cpf_masked=user.get_cpf_masked(),
+                    tipo_usuario=user.tipo_usuario,
+                    telefone=user.telefone,
+                    date_joined=user.date_joined.isoformat(),
+                )
+                for user in users
+            ]
+            
+            return ServiceResultListDTO(
+                success=True,
+                data=response_dtos
+            )
+        
+        except Exception as e:
+            logger.error(f"Erro ao listar usuários: {e}", exc_info=True)
+            return ServiceResultListDTO(
+                success=False,
+                error="Erro interno ao listar usuários"
+            )
+    
+    def deletar_usuario(
+        self,
+        user_id: UUID,
+        deleted_by: Optional[UUID] = None
+    ) -> ServiceResultMessageDTO:
+        """Remove usuário do sistema."""
+        try:
+            user = self.repository.get_by_id(user_id)
+            if not user:
+                raise UserNotFoundException(str(user_id))
+            
+            self.repository.delete(user, deleted_by=deleted_by)
+            
+            logger.info(f"Usuário deletado: {user_id}")
+            
+            result = ServiceResultMessageDTO(success=True, message='Usuário removido com sucesso')
+            
+            try:
+                dispatch_event(
+                    event_type=EventType.USER_DELETED,
+                    tenant_id=deleted_by or user_id,
+                    user_id=user_id,
+                    data={'user_id': str(user_id)}
+                )
+            except Exception as e:
+                logger.error(f"Falha ao disparar evento USER_DELETED: {e}", exc_info=True)
+            
+            return result
+        
+        except UserNotFoundException as e:
+            return ServiceResultMessageDTO(
+                success=False,
+                error=e.message,
+                details=e.details
+            )
+        except Exception as e:
+            logger.error(f"Erro ao deletar usuário: {e}", exc_info=True)
+            return ServiceResultMessageDTO(
+                success=False,
+                error="Erro interno ao deletar usuário"
+            )

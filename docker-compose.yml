@@ -1,0 +1,94 @@
+services:
+  # ═══════════════════════════════════════════════════════════
+  # BANCO DE DADOS: PostgreSQL 16 + PostGIS 3.4 + pgvector
+  # ═══════════════════════════════════════════════════════════
+  db:
+    build:
+      context: ./docker/postgres
+      dockerfile: Dockerfile
+    container_name: barber_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-barber_db}
+      POSTGRES_USER: ${POSTGRES_USER:-usuario_postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-senha_postgres}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - barber_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-usuario_postgres} -d ${POSTGRES_DB:-barber_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - barber_network
+
+  # ═══════════════════════════════════════════════════════════
+  # CACHE & BROKER: Redis (Celery + Cache Django)
+  # ═══════════════════════════════════════════════════════════
+  redis:
+    image: redis:7-alpine
+    container_name: barber_redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - barber_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - barber_network
+
+  # ═══════════════════════════════════════════════════════════
+  # APLICAÇÃO: Django (API REST + DRF)
+  # ═══════════════════════════════════════════════════════════
+  web:
+    build:
+      context: .
+      dockerfile: docker/django/Dockerfile
+    container_name: barber_web
+    command: >
+      sh -c "python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+      - barber_static_data:/app/staticfiles
+      - barber_media_data:/app/media
+    ports:
+      - "${DJANGO_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=barber_project.settings
+      - DATABASE_URL=postgres://${POSTGRES_USER:-usuario_postgres}:${POSTGRES_PASSWORD:-senha_postgres}@db:5432/${POSTGRES_DB:-barber_db}
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - barber_network
+# ═══════════════════════════════════════════════════════════
+volumes:
+  barber_postgres_data:
+    driver: local
+  barber_redis_data:
+    driver: local
+  barber_static_data:
+    driver: local
+  barber_media_data:
+    driver: local
+
+# ═══════════════════════════════════════════════════════════
+# REDE INTERNA (isolamento de containers)
+# ═══════════════════════════════════════════════════════════
+networks:
+  barber_network:
+    driver: bridge
