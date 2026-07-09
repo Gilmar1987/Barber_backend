@@ -39,6 +39,8 @@ INSTALLED_APPS = [
     
     # Local apps
     'apps.core',
+    'apps.tenants',
+    #'apps.agenda',
 ]
 
 MIDDLEWARE = [
