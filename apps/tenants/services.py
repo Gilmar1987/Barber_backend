@@ -28,6 +28,8 @@ import logging
 from typing import Optional
 from uuid import UUID
 
+from django.db import DatabaseError, OperationalError
+
 from apps.tenants.dtos import (
     BarbeariaCreateDTO,
     BarbeariaListDTO,
@@ -46,6 +48,7 @@ from common.exceptions import (
     DomainException,
     DuplicateResourceException,
 )
+from apps.tenants.dtos import ServiceResultListWithDistanceDTO
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +109,8 @@ class BarbeariaService:
                         'estado': barbearia.estado,
                     }
                 )
-            except Exception as e:
-                logger.error(f"Falha ao disparar evento TENANT_CREATED: {e}", exc_info=True)
+            except Exception:
+                logging.exception('Falha ao disparar evento TENANT_CREATED')
             
             return result
         
@@ -124,8 +127,14 @@ class BarbeariaService:
                 error=e.message,
                 details=e.details
             )
-        except Exception as e:
-            logger.error(f"Erro ao criar barbearia: {e}", exc_info=True)
+        except (DatabaseError, OperationalError):
+            logging.exception('Erro de banco ao criar barbearia')
+            return ServiceResultSingleDTO(
+                success=False,
+                error="Erro interno ao criar barbearia"
+            )
+        except Exception:
+            logging.exception('Erro inesperado ao criar barbearia')
             return ServiceResultSingleDTO(
                 success=False,
                 error="Erro interno ao criar barbearia"
@@ -152,8 +161,14 @@ class BarbeariaService:
                 error=e.message,
                 details=e.details
             )
-        except Exception as e:
-            logger.error(f"Erro ao obter barbearia: {e}", exc_info=True)
+        except (DatabaseError, OperationalError):
+            logging.exception('Erro de banco ao obter barbearia')
+            return ServiceResultSingleDTO(
+                success=False,
+                error="Erro interno ao obter barbearia"
+            )
+        except Exception:
+            logging.exception('Erro inesperado ao obter barbearia')
             return ServiceResultSingleDTO(
                 success=False,
                 error="Erro interno ao obter barbearia"
@@ -201,8 +216,8 @@ class BarbeariaService:
                         ]
                     }
                 )
-            except Exception as e:
-                logger.error(f"Falha ao disparar evento TENANT_UPDATED: {e}", exc_info=True)
+            except Exception:
+                logging.exception('Falha ao disparar evento TENANT_UPDATED')
             
             return result
         
@@ -218,8 +233,14 @@ class BarbeariaService:
                 error=e.message,
                 details=e.details
             )
-        except Exception as e:
-            logger.error(f"Erro ao atualizar barbearia: {e}", exc_info=True)
+        except (DatabaseError, OperationalError):
+            logging.exception('Erro de banco ao atualizar barbearia')
+            return ServiceResultSingleDTO(
+                success=False,
+                error="Erro interno ao atualizar barbearia"
+            )
+        except Exception:
+            logging.exception('Erro inesperado ao atualizar barbearia')
             return ServiceResultSingleDTO(
                 success=False,
                 error="Erro interno ao atualizar barbearia"
@@ -244,8 +265,14 @@ class BarbeariaService:
                 data=response_dtos
             )
         
-        except Exception as e:
-            logger.error(f"Erro ao listar barbearias: {e}", exc_info=True)
+        except (DatabaseError, OperationalError):
+            logging.exception('Erro de banco ao listar barbearias')
+            return ServiceResultListDTO(
+                success=False,
+                error="Erro interno ao listar barbearias"
+            )
+        except Exception:
+            logging.exception('Erro inesperado ao listar barbearias')
             return ServiceResultListDTO(
                 success=False,
                 error="Erro interno ao listar barbearias"
@@ -275,29 +302,42 @@ class BarbeariaService:
             response_dtos = []
             for barbearia in barbearias:
                 distancia_metros = None
-                distancia = getattr(barbearia, 'distancia', None)
-                if distancia is not None:
+                if hasattr(barbearia, 'distancia') and barbearia.distancia is not None:
                     try:
-                        distancia_metros = round(float(distancia.m), 2)
-                    except (AttributeError, TypeError, ValueError):
-                        distancia_metros = round(float(distancia), 2)
+                        #Tentar .m primeiro (Django GIS padrão)
+                        if hasattr(barbearia.distancia, 'm'):
+                            distancia_metros = float(barbearia.distancia.m)
+                        else:
+                            distancia_metros = float(barbearia.distancia)
+                    except(AttributeError, ValueError, TypeError):
+                        distancia_metros = None
+
                 response_dtos.append(
                     self._to_list_with_distance_dto(barbearia, distancia_metros)
                 )
+
+                    
             
             logger.info(
                 f"Busca por proximidade: {len(response_dtos)} barbearias "
                 f"encontradas em raio de {search_dto.raio_km}km"
             )
             
-            return ServiceResultListDTO(
+            #return ServiceResultListDTO
+            return ServiceResultListWithDistanceDTO(
                 success=True,
                 data=response_dtos
             )
         
-        except Exception as e:
-            logger.error(f"Erro ao buscar por proximidade: {e}", exc_info=True)
-            return ServiceResultListDTO(
+        except (DatabaseError, OperationalError):
+            logging.exception('Erro de banco ao buscar barbearias por proximidade')
+            return ServiceResultListWithDistanceDTO(
+                success=False,
+                error="Erro interno ao buscar barbearias por proximidade"
+            )
+        except Exception:
+            logging.exception('Erro inesperado ao buscar barbearias por proximidade')
+            return ServiceResultListWithDistanceDTO(
                 success=False,
                 error="Erro interno ao buscar barbearias por proximidade"
             )
@@ -323,16 +363,18 @@ class BarbeariaService:
             
             self.repository.soft_delete(barbearia, deleted_by=deleted_by)
             
-            # EDA: Dispara evento assíncrono
-            dispatch_event(
-                event_type=EventType.TENANT_UPDATED,
-                tenant_id=barbearia_id,
-                user_id=deleted_by or barbearia_id,
-                data={
-                    'barbearia_id': str(barbearia_id),
-                    'action': 'soft_deleted'
-                }
-            )
+            try:
+                dispatch_event(
+                    event_type=EventType.TENANT_UPDATED,
+                    tenant_id=barbearia_id,
+                    user_id=deleted_by or barbearia_id,
+                    data={
+                        'barbearia_id': str(barbearia_id),
+                        'action': 'soft_deleted'
+                    }
+                )
+            except Exception:
+                logging.exception('Falha ao disparar evento TENANT_UPDATED (soft_delete)')
             
             logger.info(f"Barbearia deletada (soft): {barbearia_id}")
             
@@ -347,8 +389,14 @@ class BarbeariaService:
                 error=e.message,
                 details=e.details
             )
-        except Exception as e:
-            logger.error(f"Erro ao deletar barbearia: {e}", exc_info=True)
+        except (DatabaseError, OperationalError):
+            logging.exception('Erro de banco ao deletar barbearia')
+            return ServiceResultMessageDTO(
+                success=False,
+                error="Erro interno ao deletar barbearia"
+            )
+        except Exception:
+            logging.exception('Erro inesperado ao deletar barbearia')
             return ServiceResultMessageDTO(
                 success=False,
                 error="Erro interno ao deletar barbearia"

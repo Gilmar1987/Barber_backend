@@ -205,6 +205,15 @@ class ServiceResultListDTO(BaseModel):
     error: Optional[str] = None
     details: Optional[dict] = None
 
+class ServiceResultListWithDistanceDTO(BaseModel):
+    """
+    DTO para resultado de operações que retornam uma LISTA de objetos com distância.
+    Ex: listar_barbearias_por_proximidade
+    """
+    success: bool
+    data: Optional[List[BarbeariaListWithDistanceDTO]] = None
+    error: Optional[str] = None
+    details: Optional[dict] = None
 
 class ServiceResultMessageDTO(BaseModel):
     """

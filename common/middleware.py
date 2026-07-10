@@ -27,7 +27,7 @@ import logging
 from typing import Optional
 from uuid import UUID
 
-from django.db import connection
+from django.db import DatabaseError, OperationalError, connection
 from django.http import HttpRequest, HttpResponse
 from django.utils.deprecation import MiddlewareMixin
 
@@ -72,11 +72,9 @@ class TenantContextMiddleware(MiddlewareMixin):
                         "SET LOCAL app.current_tenant = %s",
                         [str(tenant_id)]
                     )
-            except Exception as e:
-                logger.error(
-                    "Falha crítica ao setar contexto de tenant no PostgreSQL: %s",
-                    e,
-                    exc_info=True
+            except (OperationalError, DatabaseError):
+                logging.exception(
+                    'Falha crítica ao setar contexto de tenant no PostgreSQL'
                 )
                 raise
         
