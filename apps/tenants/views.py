@@ -20,7 +20,7 @@
 import logging
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter, OpenApiTypes
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.request import Request
@@ -56,12 +56,28 @@ class BarbeariaCreateView(APIView):
         responses={
             201: BarbeariaResponseSerializer,
             400: OpenApiResponse(description='Erro de validação'),
+            403: OpenApiResponse(description='Acesso negado, apenas usuário DONO pode criar barbearia '),
+            409: OpenApiResponse(description='Barbearia com CNPJ ou email já existe')
         },
         description='Cria uma nova barbearia (tenant) no sistema.',
         tags=['Barbearias'],
     )
     def post(self, request: Request) -> Response:
-        """Cria nova barbearia."""
+        """Cria nova barbearia (apenas DONO pode criar)"""
+        tipo_usuario = getattr(request.user, 'tipo_usuario', None)
+        if tipo_usuario != 'DONO':
+            return Response(
+                {
+                    'success': False, 
+                    'error': 'Acesso negado. Apenas DONO pode criar barbearia.',
+                    'details': {
+                        'tipo_user': request.user.tipo_usuario,
+                        'user_id': request.user.id,
+                        'tipo_usuario_necessario': 'DONO'
+                    }
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
         serializer = BarbeariaCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -97,12 +113,14 @@ class BarbeariaDetailView(APIView):
     @extend_schema(
         responses={
             200: BarbeariaResponseSerializer,
+            403: OpenApiResponse(description='Acesso negado apenas Dono pode realzar modificações'),
             404: OpenApiResponse(description='Barbearia não encontrada'),
         },
         tags=['Barbearias'],
     )
     def get(self, request: Request, barbearia_id: UUID) -> Response:
         """Retorna dados de uma barbearia específica."""
+       
         result = self.service.obter_barbearia(barbearia_id)
         
         if result.success:
@@ -121,6 +139,20 @@ class BarbeariaDetailView(APIView):
     )
     def put(self, request: Request, barbearia_id: UUID) -> Response:
         """Atualiza barbearia existente."""
+        tipo_usuario = getattr(request.user, 'tipo_usuario', None)
+        if tipo_usuario != 'DONO':
+            return Response(
+                {
+                    'success': False, 
+                    'error': 'Acesso negado. Apenas DONO pode atualizar barbearia.',
+                    'details': {
+                        'tipo_user': request.user.tipo_usuario,
+                        'user_id': request.user.id,
+                        'tipo_usuario_necessario': 'DONO'
+                    }
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
         serializer = BarbeariaUpdateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -155,6 +187,20 @@ class BarbeariaDetailView(APIView):
     )
     def delete(self, request: Request, barbearia_id: UUID) -> Response:
         """Realiza soft delete da barbearia."""
+        tipo_usuario = getattr(request.user, 'tipo_usuario', None)
+        if tipo_usuario != 'DONO':
+            return Response(
+                {
+                    'success': False,
+                    'error': 'Acesso negado. Apenas DONO pode deletar barbearia.',
+                    'details': {
+                        'tipo_user': request.user.tipo_usuario,
+                        'user_id': request.user.id,
+                        'tipo_usuario_necessario': 'DONO'
+                    }
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
         # Extrai user_id do JWT para auditoria
         deleted_by = request.user.id if request.user.is_authenticated else None
         
@@ -204,7 +250,30 @@ class BarbeariaProximidadeView(APIView):
         self.service = BarbeariaService()
     
     @extend_schema(
-        parameters=[ProximidadeSearchSerializer],
+        parameters=[
+            OpenApiParameter(
+                name='latitude',
+                type=OpenApiTypes.FLOAT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description='Latitude do ponto de referência (-90 a 90)'
+            ),
+            OpenApiParameter(
+                name='longitude',
+                type=OpenApiTypes.FLOAT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description='Longitude do ponto de referência (-180 a 180)'
+            ),
+            OpenApiParameter(
+                name='raio_km',
+                type=OpenApiTypes.FLOAT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description='Raio de busca em quilômetros (padrão: 5 km)',
+                default=5
+            ),
+        ],
         responses={200: BarbeariaListWithDistanceSerializer(many=True)},
         description='Busca barbearias por proximidade geográfica (raio em km).',
         tags=['Barbearias'],
