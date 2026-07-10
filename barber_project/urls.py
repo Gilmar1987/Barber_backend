@@ -20,6 +20,9 @@ urlpatterns = [
     
     # Domínio tenants
     path('api/v1/tenants/', include('apps.tenants.urls')),
+
+    # Domínio operacional
+    path('api/v1/operacional/', include('apps.operacional.urls')),
     
     # Documentação da API (pública - permissão explícita AllowAny)
     path(

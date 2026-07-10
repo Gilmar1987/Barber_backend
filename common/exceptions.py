@@ -9,6 +9,7 @@
 - Logs estruturados sem expor informações sensíveis
 """
 from typing import Any, Dict, Optional
+from uuid import UUID
 
 
 class DomainException(Exception):
@@ -89,4 +90,83 @@ class PermissionDeniedException(DomainException):
         super().__init__(
             message=message,
             code="PERMISSION_DENIED"
+        )
+
+
+# ═══════════════════════════════════════════════════════════
+# EXCEPTIONS DO DOMÍNIO OPERACIONAL
+# ═══════════════════════════════════════════════════════════
+
+class ServicoNotFoundException(DomainException):
+    """Exceção lançada quando um serviço não é encontrado."""
+    
+    def __init__(self, servico_id: int, barbearia_id: Optional[UUID] = None):
+        self.servico_id = servico_id
+        self.barbearia_id = barbearia_id
+        super().__init__(
+            message=f"Serviço {servico_id} não encontrado",
+            details={
+                'servico_id': servico_id,
+                'barbearia_id': str(barbearia_id) if barbearia_id else None
+            }
+        )
+
+
+class ProfissionalNotFoundException(DomainException):
+    """Exceção lançada quando um profissional não é encontrado."""
+    
+    def __init__(self, profissional_id: int, barbearia_id: Optional[UUID] = None):
+        self.profissional_id = profissional_id
+        self.barbearia_id = barbearia_id
+        super().__init__(
+            message=f"Profissional {profissional_id} não encontrado",
+            details={
+                'profissional_id': profissional_id,
+                'barbearia_id': str(barbearia_id) if barbearia_id else None
+            }
+        )
+
+
+class UsuarioNaoBarbeiroException(DomainException):
+    """Exceção lançada quando o usuário não é do tipo BARBEIRO."""
+    
+    def __init__(self, usuario_id: UUID, tipo_usuario: str):
+        self.usuario_id = usuario_id
+        self.tipo_usuario = tipo_usuario
+        super().__init__(
+            message=f"Usuário {usuario_id} não é do tipo BARBEIRO",
+            details={
+                'usuario_id': str(usuario_id),
+                'tipo_usuario_atual': tipo_usuario,
+                'tipo_usuario_necessario': 'BARBEIRO'
+            }
+        )
+
+
+class ProfissionalDuplicadoException(DomainException):
+    """Exceção lançada quando usuário já é profissional na barbearia."""
+    
+    def __init__(self, usuario_id: UUID, barbearia_id: UUID):
+        self.usuario_id = usuario_id
+        self.barbearia_id = barbearia_id
+        super().__init__(
+            message=f"Usuário {usuario_id} já é profissional nesta barbearia",
+            details={
+                'usuario_id': str(usuario_id),
+                'barbearia_id': str(barbearia_id)
+            }
+        )
+
+
+class ServicoComHistoricoException(DomainException):
+    """Exceção lançada ao tentar deletar serviço com agendamentos concluídos (proteção BI)."""
+    
+    def __init__(self, servico_id: int):
+        self.servico_id = servico_id
+        super().__init__(
+            message=f"Serviço {servico_id} possui agendamentos concluídos e não pode ser deletado",
+            details={
+                'servico_id': servico_id,
+                'motivo': 'Proteção de histórico de BI (ON DELETE PROTECT)'
+            }
         )

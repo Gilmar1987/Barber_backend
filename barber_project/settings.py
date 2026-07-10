@@ -40,7 +40,7 @@ INSTALLED_APPS = [
     # Local apps
     'apps.core',
     'apps.tenants',
-    #'apps.agenda',
+    'apps.operacional',
 ]
 
 MIDDLEWARE = [
@@ -118,7 +118,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Django REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'apps.core.jwt.BarberHubJWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
@@ -143,6 +143,7 @@ SIMPLE_JWT = {
     ),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
+    'TOKEN_OBTAIN_SERIALIZER': 'apps.core.jwt.BarberHubTokenObtainPairSerializer',
 }
 
 # CORS

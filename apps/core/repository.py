@@ -150,3 +150,15 @@ class UsuarioRepository:
         if exclude_id:
             queryset = queryset.exclude(id=exclude_id)
         return queryset.exists()
+
+    @staticmethod
+    def get_by_id_as_barbeiro(usuario_id: UUID) -> Optional['Usuario']:
+        """
+        Busca usuário por ID validando que é do tipo BARBEIRO.
+        Usado pelo domínio operacional para criar vínculos profissionais.
+        Retorna None se não existir ou não for BARBEIRO.
+        """
+        try:
+            return Usuario.objects.get(id=usuario_id, tipo_usuario='BARBEIRO')
+        except Usuario.DoesNotExist:
+            return None

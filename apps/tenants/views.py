@@ -104,7 +104,7 @@ class BarbeariaDetailView(APIView):
     """
     GET / PUT / DELETE /api/v1/tenants/barbearias/{barbearia_id}/
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -120,13 +120,22 @@ class BarbeariaDetailView(APIView):
     )
     def get(self, request: Request, barbearia_id: UUID) -> Response:
         """Retorna dados de uma barbearia específica."""
-       
+        tipo_usuario = getattr(request.user, 'tipo_usuario', None)
+
+        # DONO e BARBEIRO só podem ver a própria barbearia
+        if tipo_usuario in ('DONO', 'BARBEIRO'):
+            tenant_id = getattr(request.user, 'tenant_id', None)
+            if not tenant_id or tenant_id != barbearia_id:
+                return Response(
+                    {'success': False, 'error': 'Acesso negado. Você não tem permissão para acessar esta barbearia.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        # CLIENTE_FINAL (autenticado ou não): pode ver qualquer barbearia ativa
         result = self.service.obter_barbearia(barbearia_id)
-        
         if result.success:
             return Response(result.model_dump(), status=status.HTTP_200_OK)
-        else:
-            return Response(result.model_dump(), status=status.HTTP_404_NOT_FOUND)
+        return Response(result.model_dump(), status=status.HTTP_404_NOT_FOUND)
     
     @extend_schema(
         request=BarbeariaUpdateSerializer,
@@ -140,17 +149,11 @@ class BarbeariaDetailView(APIView):
     def put(self, request: Request, barbearia_id: UUID) -> Response:
         """Atualiza barbearia existente."""
         tipo_usuario = getattr(request.user, 'tipo_usuario', None)
-        if tipo_usuario != 'DONO':
+        tenant_id = getattr(request.user, 'tenant_id', None)
+
+        if tipo_usuario != 'DONO' or not tenant_id or tenant_id != barbearia_id:
             return Response(
-                {
-                    'success': False, 
-                    'error': 'Acesso negado. Apenas DONO pode atualizar barbearia.',
-                    'details': {
-                        'tipo_user': request.user.tipo_usuario,
-                        'user_id': request.user.id,
-                        'tipo_usuario_necessario': 'DONO'
-                    }
-                },
+                {'success': False, 'error': 'Acesso negado. Apenas o DONO desta barbearia pode atualizá-la.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         serializer = BarbeariaUpdateSerializer(data=request.data)
@@ -188,17 +191,11 @@ class BarbeariaDetailView(APIView):
     def delete(self, request: Request, barbearia_id: UUID) -> Response:
         """Realiza soft delete da barbearia."""
         tipo_usuario = getattr(request.user, 'tipo_usuario', None)
-        if tipo_usuario != 'DONO':
+        tenant_id = getattr(request.user, 'tenant_id', None)
+
+        if tipo_usuario != 'DONO' or not tenant_id or tenant_id != barbearia_id:
             return Response(
-                {
-                    'success': False,
-                    'error': 'Acesso negado. Apenas DONO pode deletar barbearia.',
-                    'details': {
-                        'tipo_user': request.user.tipo_usuario,
-                        'user_id': request.user.id,
-                        'tipo_usuario_necessario': 'DONO'
-                    }
-                },
+                {'success': False, 'error': 'Acesso negado. Apenas o DONO desta barbearia pode excluí-la.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         # Extrai user_id do JWT para auditoria
@@ -233,7 +230,27 @@ class BarbeariaListView(APIView):
         tags=['Barbearias'],
     )
     def get(self, request: Request) -> Response:
-        """Lista todas as barbearias ativas."""
+        """Lista barbearias conforme perfil do usuário."""
+        tipo_usuario = getattr(request.user, 'tipo_usuario', None)
+
+        # DONO e BARBEIRO: apenas a própria barbearia (isolamento multi-tenant)
+        if tipo_usuario in ('DONO', 'BARBEIRO'):
+            tenant_id = getattr(request.user, 'tenant_id', None)
+            if not tenant_id:
+                return Response(
+                    {'success': False, 'error': 'Usuário sem vínculo com barbearia.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            result = self.service.obter_barbearia(tenant_id)
+            # Retorna lista com um único item para manter contrato da resposta
+            if result.success:
+                return Response(
+                    {'success': True, 'data': [result.data.model_dump()], 'error': None, 'details': None},
+                    status=status.HTTP_200_OK
+                )
+            return Response(result.model_dump(), status=status.HTTP_404_NOT_FOUND)
+
+        # CLIENTE_FINAL ou não autenticado: marketplace global (todas as ativas)
         result = self.service.listar_barbearias()
         return Response(result.model_dump(), status=status.HTTP_200_OK)
 
