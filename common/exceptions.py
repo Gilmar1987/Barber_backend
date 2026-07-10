@@ -71,6 +71,17 @@ class DuplicateResourceException(DomainException):
         return value
 
 
+class BarbeariaNotFoundException(DomainException):
+    """Barbearia não encontrada."""
+
+    def __init__(self, barbearia_id: str):
+        super().__init__(
+            message=f"Barbearia não encontrada: {barbearia_id[:8]}...",
+            code="BARBEARIA_NOT_FOUND",
+            details={"barbearia_id": barbearia_id[:8] + "..."}
+        )
+
+
 class PermissionDeniedException(DomainException):
     """Permissão negada."""
     

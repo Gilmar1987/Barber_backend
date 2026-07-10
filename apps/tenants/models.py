@@ -21,11 +21,17 @@ from django.conf import settings
 from django.contrib.gis.db import models as gis_models
 from django.db import models
 
+from common.managers import UnscopedManager
+
+
 class Barbearia(models.Model):
     """
     Modelo de Barbearia com geolocalização e multi-tenant.
     Cada Barbearia é um tenant isolado no sistema
     """
+    objects = models.Manager()        # Manager padrão — sem filtro de tenant (Barbearia É o tenant)
+    unscoped_objects = UnscopedManager()  # Alias explícito para operações administrativas
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
