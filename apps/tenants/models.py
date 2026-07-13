@@ -147,6 +147,20 @@ class Barbearia(models.Model):
         on_delete=models.SET_NULL,
         help_text="Usuário que atualizou o registro"
     )
+    # Novos campos para configuração operacional padrão
+    balanceamento_minutos = models.IntegerField(
+    default=60,
+    help_text="Minutos antes do intervalo para encaixar agendamentos curtos (máx 60)"
+    )
+    buffer_minutos = models.IntegerField(
+    default=0,
+    help_text="Minutos de buffer entre agendamentos (tempo de limpeza/preparação)"
+    )
+    slot_padrao_minutos = models.IntegerField(
+    default=30,
+    help_text="Duração padrão do slot de agendamento em minutos"
+    )
+
     #SoftDelete
     is_deleted = models.BooleanField(
         default=False,

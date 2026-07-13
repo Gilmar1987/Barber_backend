@@ -9,13 +9,15 @@ Any proibido)."
 - Pydantic DTOs para entrada/saída de Services
 - Validação forte de tipos (sem Any)
 - DTOs específicos para cada caso de uso
-- Separação de responsabilidades (barbearia_id é injetado pelo Service, não pelo DTO)
+- Pydantic v2 (model_config = ConfigDict(from_attributes=True))
+- Separação de responsabilidades (barbearia_id é injetado pelo Service)
 """
+from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Optional, List, Union
+from typing import List, Optional, Union
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ═══════════════════════════════════════════════════════════
@@ -28,6 +30,7 @@ class ServicoCreateDTO(BaseModel):
     preco: Decimal = Field(..., gt=0, decimal_places=2)
     duracao_minutos: int = Field(default=30, ge=5)
     ativo: bool = True
+    todos_profissionais_habilitados: bool = True
 
 
 class ServicoUpdateDTO(BaseModel):
@@ -36,18 +39,20 @@ class ServicoUpdateDTO(BaseModel):
     preco: Optional[Decimal] = Field(None, gt=0, decimal_places=2)
     duracao_minutos: Optional[int] = Field(None, ge=5)
     ativo: Optional[bool] = None
+    todos_profissionais_habilitados: Optional[bool] = None
 
 
 class ServicoResponseDTO(BaseModel):
     """DTO de resposta para Serviço."""
-    model_config = ConfigDict(from_attributes=True)
-
     id: int
     barbearia_id: UUID
     nome: str
     preco: Decimal
     duracao_minutos: int
     ativo: bool
+    todos_profissionais_habilitados: bool
+    
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -69,32 +74,235 @@ class ProfissionalUpdateDTO(BaseModel):
 
 class ProfissionalResponseDTO(BaseModel):
     """DTO de resposta para Profissional."""
-    model_config = ConfigDict(from_attributes=True)
-
     id: int
     barbearia_id: UUID
     usuario_id: UUID
     usuario_nome: str
     comissao_percentual: int
     ativo: bool
+    
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ═══════════════════════════════════════════════════════════
-# DTOs de RESULTADO (Service Results)
+# DTOs de GRADE HORÁRIA (core_gradehoraria)
 # ═══════════════════════════════════════════════════════════
+
+class GradeHorariaCreateDTO(BaseModel):
+    """DTO para criação de grade horária."""
+    dia_semana: int = Field(..., ge=0, le=6, description="0=Domingo, 6=Sábado")
+    hora_inicio: time
+    hora_fim: time
+    intervalo_inicio: Optional[time] = None
+    intervalo_fim: Optional[time] = None
+    ativo: bool = True
+    
+    @field_validator('hora_fim')
+    @classmethod
+    def validar_hora_fim(cls, v: time, info) -> time:
+        if 'hora_inicio' in info.data and v <= info.data['hora_inicio']:
+            raise ValueError('hora_fim deve ser posterior a hora_inicio')
+        return v
+    
+    @field_validator('intervalo_fim')
+    @classmethod
+    def validar_intervalo_fim(cls, v: Optional[time], info) -> Optional[time]:
+        if v is not None:
+            intervalo_inicio = info.data.get('intervalo_inicio')
+            if intervalo_inicio is None:
+                raise ValueError('intervalo_inicio é obrigatório quando intervalo_fim é informado')
+            if v <= intervalo_inicio:
+                raise ValueError('intervalo_fim deve ser posterior a intervalo_inicio')
+        return v
+
+
+class GradeHorariaUpdateDTO(BaseModel):
+    """DTO para atualização de grade horária."""
+    hora_inicio: Optional[time] = None
+    hora_fim: Optional[time] = None
+    intervalo_inicio: Optional[time] = None
+    intervalo_fim: Optional[time] = None
+    ativo: Optional[bool] = None
+
+
+class GradeHorariaResponseDTO(BaseModel):
+    """DTO de resposta para Grade Horária."""
+    id: int
+    profissional_id: int
+    dia_semana: int
+    dia_semana_nome: str
+    hora_inicio: time
+    hora_fim: time
+    intervalo_inicio: Optional[time]
+    intervalo_fim: Optional[time]
+    ativo: bool
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# DTOs de INDISPONIBILIDADES
+# ═══════════════════════════════════════════════════════════
+
+class DiaIndisponivelCreateDTO(BaseModel):
+    """DTO para criação de dia indisponível."""
+    data: date
+    motivo: Optional[str] = Field(None, max_length=255)
+
+
+class DiaIndisponivelResponseDTO(BaseModel):
+    """DTO de resposta para Dia Indisponível."""
+    id: int
+    profissional_id: int
+    data: date
+    motivo: Optional[str]
+    criado_por_id: Optional[UUID]
+    data_criacao: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IntervaloIndisponivelCreateDTO(BaseModel):
+    """DTO para criação de intervalo indisponível."""
+    data: date
+    hora_inicio: time
+    hora_fim: time
+    motivo: Optional[str] = Field(None, max_length=255)
+    
+    @field_validator('hora_fim')
+    @classmethod
+    def validar_hora_fim(cls, v: time, info) -> time:
+        if 'hora_inicio' in info.data and v <= info.data['hora_inicio']:
+            raise ValueError('hora_fim deve ser posterior a hora_inicio')
+        return v
+
+
+class IntervaloIndisponivelResponseDTO(BaseModel):
+    """DTO de resposta para Intervalo Indisponível."""
+    id: int
+    profissional_id: int
+    data: date
+    hora_inicio: time
+    hora_fim: time
+    motivo: Optional[str]
+    criado_por_id: Optional[UUID]
+    data_criacao: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# DTOs de HABILITAÇÃO SERVIÇO-PROFISSIONAL
+# ═══════════════════════════════════════════════════════════
+
+class ServicoProfissionalCreateDTO(BaseModel):
+    """DTO para criação de vínculo serviço-profissional."""
+    servico_id: int
+    profissional_id: int
+    habilitado: bool = True
+
+
+class ServicoHabilitadoResponseDTO(BaseModel):
+    """DTO de resposta para habilitação serviço-profissional."""
+    id: int
+    servico_id: int
+    servico_nome: str
+    profissional_id: int
+    profissional_nome: str
+    habilitado: bool
+    data_criacao: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# DTOs de CONVITE PROFISSIONAL (Fluxo Híbrido)
+# ═══════════════════════════════════════════════════════════
+
+class ConviteProfissionalCreateDTO(BaseModel):
+    """DTO para criação de convite profissional (fluxo híbrido)."""
+    nome_completo: str = Field(..., min_length=3, max_length=255)
+    email: str = Field(..., max_length=254)
+    cpf: str = Field(..., min_length=11, max_length=11)
+    telefone: Optional[str] = Field(None, max_length=15)
+    comissao_percentual: int = Field(..., ge=0, le=100)
+    
+    @field_validator('email')
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        if '@' not in v or '.' not in v:
+            raise ValueError('Email inválido')
+        return v.lower().strip()
+    
+    @field_validator('cpf')
+    @classmethod
+    def validate_cpf(cls, v: str) -> str:
+        cleaned = ''.join(filter(str.isdigit, v))
+        if len(cleaned) != 11:
+            raise ValueError('CPF deve ter exatamente 11 dígitos')
+        return cleaned
+    
+    @field_validator('nome_completo')
+    @classmethod
+    def validate_nome(cls, v: str) -> str:
+        return v.strip()
+
+
+class ConviteProfissionalResponseDTO(BaseModel):
+    """DTO de resposta para convite profissional."""
+    id: int
+    barbearia_id: UUID
+    usuario_id: UUID
+    nome_completo: str
+    email: str
+    cpf: str
+    telefone: Optional[str]
+    comissao_percentual: int
+    status: str
+    data_criacao: datetime
+    data_expiracao: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ConviteAceiteResponseDTO(BaseModel):
+    """DTO de resposta após aceitação de convite."""
+    success: bool
+    message: str
+    profissional_id: Optional[int] = None
+    barbearia_id: Optional[UUID] = None
+
+
+# ═══════════════════════════════════════════════════════════
+# DTOs de RESULTADO (Service Results) — TIPADOS
+# ═══════════════════════════════════════════════════════════
+
+# Define Union de todos os DTOs de resposta possíveis
+ResponseDTOType = Union[
+    ServicoResponseDTO,
+    ProfissionalResponseDTO,
+    GradeHorariaResponseDTO,
+    DiaIndisponivelResponseDTO,
+    IntervaloIndisponivelResponseDTO,
+    ServicoHabilitadoResponseDTO,
+    ConviteProfissionalResponseDTO,
+    ConviteAceiteResponseDTO,
+]
+
 
 class ServiceResultSingleDTO(BaseModel):
     """DTO para resultado de operações que retornam um único objeto."""
     success: bool
-    data: Optional[Union[ServicoResponseDTO, ProfissionalResponseDTO]] = None
+    data: Optional[ResponseDTOType] = None
     error: Optional[str] = None
+    message: Optional[str] = None
     details: Optional[dict] = None
 
 
 class ServiceResultListDTO(BaseModel):
     """DTO para resultado de operações que retornam uma lista."""
     success: bool
-    data: List[Union[ServicoResponseDTO, ProfissionalResponseDTO]] = []
+    data: Optional[List[ResponseDTOType]] = None
     error: Optional[str] = None
     details: Optional[dict] = None
 

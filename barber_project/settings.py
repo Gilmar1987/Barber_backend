@@ -17,7 +17,16 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 SECRET_KEY = env('SECRET_KEY', default='django-insecure-change-me')
 DEBUG = env('DEBUG', default=False)
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
+# ═══════════════════════════════════════════════════════════
+# BREVO (Email Service)
+# ═══════════════════════════════════════════════════════════
+BREVO_API_KEY = os.getenv('BREVO_API_KEY', '')
+BREVO_SENDER_EMAIL = os.getenv('BREVO_SENDER_EMAIL', 'noreply@barberhub.com')
 
+# ═══════════════════════════════════════════════════════════
+# FRONTEND URL (para links de aceitação de convites)
+# ═══════════════════════════════════════════════════════════
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',

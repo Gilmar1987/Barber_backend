@@ -170,3 +170,194 @@ class ServicoComHistoricoException(DomainException):
                 'motivo': 'Proteção de histórico de BI (ON DELETE PROTECT)'
             }
         )
+
+
+# ═══════════════════════════════════════════════════════════
+# EXCEPTIONS DO DOMÍNIO OPERACIONAL (GRADE/INDISPONIBILIDADE)
+# ═══════════════════════════════════════════════════════════
+
+class GradeHorariaConflictException(DomainException):
+    """Exceção lançada quando há conflito de grade horária."""
+    
+    def __init__(self, profissional_id: int, dia_semana: int):
+        self.profissional_id = profissional_id
+        self.dia_semana = dia_semana
+        super().__init__(
+            message=f"Já existe grade horária para o dia {dia_semana} deste profissional",
+            details={
+                'profissional_id': profissional_id,
+                'dia_semana': dia_semana
+            }
+        )
+
+
+class DiaIndisponivelConflictException(DomainException):
+    """Exceção lançada quando já existe dia indisponível na mesma data."""
+    
+    def __init__(self, profissional_id: int, data: str):
+        self.profissional_id = profissional_id
+        self.data = data
+        super().__init__(
+            message=f"Já existe dia indisponível registrado para {data}",
+            details={
+                'profissional_id': profissional_id,
+                'data': data
+            }
+        )
+
+
+class IntervaloIndisponivelConflictException(DomainException):
+    """Exceção lançada quando há sobreposição de intervalos indisponíveis."""
+    
+    def __init__(self, profissional_id: int, data: str):
+        self.profissional_id = profissional_id
+        self.data = data
+        super().__init__(
+            message=f"Já existe intervalo indisponível sobreposto em {data}",
+            details={
+                'profissional_id': profissional_id,
+                'data': data
+            }
+        )
+
+
+class ServicoProfissionalConflictException(DomainException):
+    """Exceção lançada quando já existe vínculo serviço-profissional."""
+    
+    def __init__(self, servico_id: int, profissional_id: int):
+        self.servico_id = servico_id
+        self.profissional_id = profissional_id
+        super().__init__(
+            message=f"Já existe vínculo entre serviço {servico_id} e profissional {profissional_id}",
+            details={
+                'servico_id': servico_id,
+                'profissional_id': profissional_id
+            }
+        )
+class GradeHorariaNotFoundException(DomainException):
+    """Exceção lançada quando uma grade horária não é encontrada."""
+    
+    def __init__(self, grade_id: int, profissional_id: int):
+        self.grade_id = grade_id
+        self.profissional_id = profissional_id
+        super().__init__(
+            message=f"Grade horária {grade_id} não encontrada",
+            details={
+                'grade_id': grade_id,
+                'profissional_id': profissional_id
+            }
+        )
+
+
+class DiaIndisponivelNotFoundException(DomainException):
+    """Exceção lançada quando um dia indisponível não é encontrado."""
+    
+    def __init__(self, dia_id: int, profissional_id: int):
+        self.dia_id = dia_id
+        self.profissional_id = profissional_id
+        super().__init__(
+            message=f"Dia indisponível {dia_id} não encontrado",
+            details={
+                'dia_id': dia_id,
+                'profissional_id': profissional_id
+            }
+        )
+
+
+class IntervaloIndisponivelNotFoundException(DomainException):
+    """Exceção lançada quando um intervalo indisponível não é encontrado."""
+    
+    def __init__(self, intervalo_id: int, profissional_id: int):
+        self.intervalo_id = intervalo_id
+        self.profissional_id = profissional_id
+        super().__init__(
+            message=f"Intervalo indisponível {intervalo_id} não encontrado",
+            details={
+                'intervalo_id': intervalo_id,
+                'profissional_id': profissional_id
+            }
+        )
+
+# ═══════════════════════════════════════════════════════════
+# EXCEPTIONS DE CONVITE PROFISSIONAL
+# ═══════════════════════════════════════════════════════════
+
+class ConviteNotFoundException(DomainException):
+    """Exceção lançada quando um convite não é encontrado."""
+    
+    def __init__(self, token: str):
+        self.token = token
+        super().__init__(
+            message="Convite não encontrado ou token inválido",
+            details={'token': token[:8] + '...' if len(token) > 8 else token}
+        )
+
+
+class ConviteExpiradoException(DomainException):
+    """Exceção lançada quando o convite expirou."""
+    
+    def __init__(self, convite_id: int):
+        self.convite_id = convite_id
+        super().__init__(
+            message="Este convite expirou. Solicite um novo convite.",
+            details={'convite_id': convite_id}
+        )
+
+
+class ConviteJaRespondidoException(DomainException):
+    """Exceção lançada quando o convite já foi aceito ou recusado."""
+    
+    def __init__(self, convite_id: int, status: str):
+        self.convite_id = convite_id
+        self.status = status
+        super().__init__(
+            message=f"Este convite já foi {status.lower()}",
+            details={
+                'convite_id': convite_id,
+                'status': status
+            }
+        )
+
+
+class ConviteDuplicadoException(DomainException):
+    """Exceção lançada quando já existe convite pendente para o email."""
+    
+    def __init__(self, email: str, barbearia_id: UUID):
+        self.email = email
+        self.barbearia_id = barbearia_id
+        super().__init__(
+            message=f"Já existe um convite pendente para {email} nesta barbearia",
+            details={
+                'email': email,
+                'barbearia_id': str(barbearia_id)
+            }
+        )
+
+
+class ProfissionalJaVinculadoException(DomainException):
+    """Exceção lançada quando o barbeiro já está vinculado à barbearia."""
+    
+    def __init__(self, usuario_id: UUID, barbearia_id: UUID):
+        self.usuario_id = usuario_id
+        self.barbearia_id = barbearia_id
+        super().__init__(
+            message="Este barbeiro já está vinculado a esta barbearia",
+            details={
+                'usuario_id': str(usuario_id),
+                'barbearia_id': str(barbearia_id)
+            }
+        )
+
+class ConviteJaRespondidoException(DomainException):
+    """Exceção lançada quando o convite já foi aceito ou recusado."""
+
+    def __init__(self, convite_id: int, status: str):
+        self.convite_id = convite_id
+        self.status = status
+        super().__init__(
+            message=f"Este convite já foi {status.lower()}",
+            details={
+                'convite_id': convite_id,
+                'status': status
+            }
+        )
