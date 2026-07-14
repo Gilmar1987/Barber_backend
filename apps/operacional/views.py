@@ -99,7 +99,11 @@ def _get_barbearia_id_from_jwt_or_none(request: Request) -> UUID:
     """
     Extrai o tenant_id do JWT do usuário autenticado, retorna None se não tiver.
     """
-    return getattr(request.user, 'barbearia_viculo_id', None)
+    barbearia_id = getattr(request.user, 'tenant_id', None)
+    if not barbearia_id:
+        logger.warning("Usuário não possui vínculo com barbearia.")
+        return None
+    return barbearia_id
 
 def _forbid_if_not_dono(request: Request) -> Response:
     """
