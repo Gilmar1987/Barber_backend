@@ -35,7 +35,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
+from apps.operacional.dtos import GradeHorariaResponseDTO
 from apps.operacional.serializers import (
     ProfissionalCreateSerializer,
     ProfissionalResponseSerializer,
@@ -43,8 +43,37 @@ from apps.operacional.serializers import (
     ServicoCreateSerializer,
     ServicoResponseSerializer,
     ServicoUpdateSerializer,
+    GradeHorariaCreateSerializer,
+    GradeHorariaUpdateSerializer,
+    ConviteAceiteSerializer,
+    ConviteProfissionalCreateSerializer,
+    DiaIndisponivelCreateSerializer,
+    IntervaloIndisponivelCreateSerializer,
+    ConviteProfissionalCreateSerializer,
+    ConviteAceiteSerializer,
 )
-from apps.operacional.services import ProfissionalService, ServicoService
+from apps.operacional.services import  (
+    ProfissionalService, 
+    ProfissionalService,
+    ServicoService, 
+    ServicoService,
+    ProfissionalService,
+    GradeHorariaService,
+    ConviteProfissionalService,
+    DiaIndisponivelService,
+    IntervaloIndisponivelService,
+GradeHorariaService, 
+ConviteProfissionalService, 
+DiaIndisponivelService,
+IntervaloIndisponivelService,
+ServicoService,
+ProfissionalService,
+GradeHorariaService,
+ConviteProfissionalService,
+DiaIndisponivelService, 
+IntervaloIndisponivelService,
+ServicoProfissionalService
+ )
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +95,11 @@ def _get_barbearia_id_from_jwt(request: Request) -> UUID:
         )
     return barbearia_id
 
+def _get_barbearia_id_from_jwt_or_none(request: Request) -> UUID:
+    """
+    Extrai o tenant_id do JWT do usuário autenticado, retorna None se não tiver.
+    """
+    return getattr(request.user, 'barbearia_viculo_id', None)
 
 def _forbid_if_not_dono(request: Request) -> Response:
     """
@@ -118,8 +152,11 @@ class ServicoListView(APIView):
             todos_servicos = []
             for barbearia in barbearias_ativas:
                 result = self.service.listar_servicos(barbearia.id, ativo_only=True)
-                if result.success and result.data:
-                    todos_servicos.extend(result.data)
+                # If the service call fails, we simply ignore it and continue.
+                if result.success:
+                    if result.data:
+                        todos_servicos.extend(result.data)
+                # No error propagation; empty list will be returned when no data is gathered.
             return Response({
                 'success': True,
                 'data': [s.model_dump() for s in todos_servicos],
@@ -333,6 +370,7 @@ class ServicoToggleAtivoView(APIView):
         self.service = ServicoService()
     
     @extend_schema(
+        request=None,
         responses={
             200: ServicoResponseSerializer,
             403: OpenApiResponse(description='Apenas DONO'),
@@ -545,6 +583,7 @@ class ProfissionalToggleAtivoView(APIView):
         self.service = ProfissionalService()
     
     @extend_schema(
+        request=None,
         responses={
             200: ProfissionalResponseSerializer,
             403: OpenApiResponse(description='Apenas DONO'),
@@ -576,3 +615,222 @@ class ProfissionalToggleAtivoView(APIView):
             return Response(result.model_dump(), status=status.HTTP_404_NOT_FOUND)
         else:
             return Response(result.model_dump(), status=status.HTTP_400_BAD_REQUEST)
+        
+
+# ═══════════════════════════════════════════════════════════
+# VIEWS DE GRADE HORÁRIA
+# ═══════════════════════════════════════════════════════════
+
+class GradeHorariaListView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = GradeHorariaService()
+    
+    @extend_schema(responses={200: GradeHorariaResponseDTO}, tags=['Grade Horária'])
+    def get(self, request: Request, profissional_id: int) -> Response:
+        barbearia_id = _get_barbearia_id_from_jwt_or_none(request)
+        if not barbearia_id:
+            return Response({'success': False, 'error': 'Acesso negado'}, status=403)
+        
+        result = self.service.listar_grades(profissional_id, barbearia_id)
+        return Response(result.model_dump(), status=200 if result.success else 400)
+
+
+class GradeHorariaCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = GradeHorariaService()
+    
+    @extend_schema(
+        request=GradeHorariaCreateSerializer,
+        responses={
+            201: OpenApiResponse(description='Grade horária criada'),
+            400: OpenApiResponse(description='Erro de validação'),
+            403: OpenApiResponse(description='Apenas DONO'),
+        },
+        tags=['Grade Horária'],
+    )
+    def post(self, request: Request, profissional_id: int) -> Response:
+        forbid_response = _forbid_if_not_dono(request)
+        if forbid_response: return forbid_response
+        
+        barbearia_id = _get_barbearia_id_from_jwt_or_none(request)
+        if not barbearia_id:
+            return Response({'success': False, 'error': 'Barbearia não identificada'}, status=403)
+        
+        serializer = GradeHorariaCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'success': False, 'errors': serializer.errors}, status=400)
+        
+        result = self.service.criar_grade(serializer.to_dto(), profissional_id, barbearia_id, request.user.id)
+        return Response(result.model_dump(), status=201 if result.success else 400)
+
+
+# ═══════════════════════════════════════════════════════════
+# VIEWS DE INDISPONIBILIDADES
+# ═══════════════════════════════════════════════════════════
+
+class DiaIndisponivelCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = DiaIndisponivelService()
+    
+    @extend_schema(
+        request=DiaIndisponivelCreateSerializer,
+        responses={
+            201: OpenApiResponse(description='Dia indisponível criado'),
+            400: OpenApiResponse(description='Erro de validação'),
+            403: OpenApiResponse(description='Acesso negado'),
+        },
+        tags=['Indisponibilidade'],
+    )
+    def post(self, request: Request, profissional_id: int) -> Response:
+        # DONO ou o próprio BARBEIRO podem criar
+        barbearia_id = _get_barbearia_id_from_jwt_or_none(request)
+        if not barbearia_id:
+            return Response({'success': False, 'error': 'Acesso negado'}, status=403)
+        
+        serializer = DiaIndisponivelCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'success': False, 'errors': serializer.errors}, status=400)
+        
+        result = self.service.criar_dia_indisponivel(serializer.to_dto(), profissional_id, barbearia_id, request.user.id)
+        return Response(result.model_dump(), status=201 if result.success else 400)
+
+
+class IntervaloIndisponivelCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = IntervaloIndisponivelService()
+    
+    @extend_schema(
+        request=IntervaloIndisponivelCreateSerializer,
+        responses={
+            201: OpenApiResponse(description='Intervalo indisponível criado'),
+            400: OpenApiResponse(description='Erro de validação'),
+            403: OpenApiResponse(description='Acesso negado'),
+        },
+        tags=['Indisponibilidade'],
+    )
+    def post(self, request: Request, profissional_id: int) -> Response:
+        barbearia_id = _get_barbearia_id_from_jwt_or_none(request)
+        if not barbearia_id:
+            return Response({'success': False, 'error': 'Acesso negado'}, status=403)
+        
+        serializer = IntervaloIndisponivelCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'success': False, 'errors': serializer.errors}, status=400)
+        
+        result = self.service.criar_intervalo_indisponivel(serializer.to_dto(), profissional_id, barbearia_id, request.user.id)
+        return Response(result.model_dump(), status=201 if result.success else 400)
+
+
+# ═══════════════════════════════════════════════════════════
+# VIEWS DE HABILITAÇÃO SERVIÇO-PROFISSIONAL
+# ═══════════════════════════════════════════════════════════
+
+class ServicoProfissionalHabilitarView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = ServicoProfissionalService()
+    
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(description='Serviço habilitado para o profissional'),
+            400: OpenApiResponse(description='Parâmetros obrigatórios ausentes'),
+            403: OpenApiResponse(description='Apenas DONO'),
+        },
+        tags=['Habilitação de Serviços'],
+    )
+    def post(self, request: Request) -> Response:
+        forbid_response = _forbid_if_not_dono(request)
+        if forbid_response: return forbid_response
+        
+        barbearia_id = _get_barbearia_id_from_jwt_or_none(request)
+        if not barbearia_id:
+            return Response({'success': False, 'error': 'Barbearia não identificada'}, status=403)
+        
+        servico_id = request.data.get('servico_id')
+        profissional_id = request.data.get('profissional_id')
+        
+        if not servico_id or not profissional_id:
+            return Response({'success': False, 'error': 'servico_id e profissional_id são obrigatórios'}, status=400)
+        
+        result = self.service.habilitar_profissional(servico_id, profissional_id, barbearia_id, request.user.id)
+        return Response(result.model_dump(), status=200 if result.success else 400)
+
+
+# ═══════════════════════════════════════════════════════════
+# VIEWS DE CONVITE PROFISSIONAL (Fluxo Híbrido)
+# ═══════════════════════════════════════════════════════════
+
+class ConviteProfissionalCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = ConviteProfissionalService()
+    
+    @extend_schema(
+        request=ConviteProfissionalCreateSerializer,
+        responses={
+            201: OpenApiResponse(description='Convite criado'),
+            400: OpenApiResponse(description='Erro de validação'),
+            403: OpenApiResponse(description='Apenas DONO ou barbearia não encontrada'),
+        },
+        tags=['Convites'],
+    )
+    def post(self, request: Request) -> Response:
+        forbid_response = _forbid_if_not_dono(request)
+        if forbid_response: return forbid_response
+        
+        barbearia_id = _get_barbearia_id_from_jwt_or_none(request)
+        if not barbearia_id:
+            return Response({
+                'success': False, 
+                'error': 'Você precisa criar uma barbearia antes de convidar profissionais.',
+                'details': {'proximo_passo': 'POST /api/v1/tenants/barbearias/create/'}
+            }, status=403)
+        
+        serializer = ConviteProfissionalCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'success': False, 'errors': serializer.errors}, status=400)
+        
+        result = self.service.criar_convite(serializer.to_dto(), barbearia_id, request.user.id)
+        return Response(result.model_dump(), status=201 if result.success else 400)
+
+
+class ConviteAceitarView(APIView):
+    """Endpoint público para o barbeiro aceitar o convite via link do email."""
+    permission_classes = [AllowAny]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = ConviteProfissionalService()
+    
+    @extend_schema(
+        request=ConviteAceiteSerializer,
+        responses={
+            200: OpenApiResponse(description='Convite aceito com sucesso'),
+            400: OpenApiResponse(description='Token inválido ou expirado'),
+        },
+        tags=['Convites'],
+    )
+    def post(self, request: Request) -> Response:
+        serializer = ConviteAceiteSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'success': False, 'errors': serializer.errors}, status=400)
+        
+        result = self.service.aceitar_convite(serializer.validated_data['token'])
+        return Response(result.model_dump(), status=200 if result.success else 400)

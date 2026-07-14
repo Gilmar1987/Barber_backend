@@ -77,6 +77,8 @@ from common.exceptions import (
     ConviteDuplicadoException,
     ProfissionalJaVinculadoException,
     ConviteJaRespondidoException,
+    ProfissionalJaHabilitadoException
+    
     
     
 
@@ -233,6 +235,7 @@ class ServicoService:
             preco=servico.preco,
             duracao_minutos=servico.duracao_minutos,
             ativo=servico.ativo,
+            todos_profissionais_habilitados=servico.todos_profissionais_habilitados,
         )
 
 
@@ -1407,3 +1410,76 @@ class ConviteProfissionalService:
             data_criacao=convite.data_criacao,
             data_expiracao=convite.data_expiracao
         )
+    
+class ServicoProfissionalService:
+    """
+    Serviço para gerenciamento de vínculos entre serviços e profissionais.
+    Gerenciar quais profissionais estão habilitados para  cada serviço
+    """
+    def __init__(
+        self,
+        repository: Optional['ServicoProfissionalRepository'] = None,
+        servico_repository:Optional['ServicoRepository']= None,
+        profissional_repository:Optional['ProfissionalRepository'] = None
+    ):
+        self.repository = repository or ServicoProfissionalRepository()
+        self.servico_repository = servico_repository or ServicoRepository()
+        self.profissional_repository = profissional_repository or ProfissionalRepository()
+
+    def habilitar_profissional(
+        self,
+        servico_id: int,
+        profissional_id: int,
+        barbearia_id: UUID,
+        user_id: Optional[UUID] = None,
+    ) -> 'ServiceResultSingleDTO':
+        """
+        Habilita um profissional para realizar um serviço específico.
+        """
+        try:
+            # 1. Valida se o serviço existe e pertence à barbearia
+            servico = self.servico_repository.get_by_id_or_raise(servico_id, barbearia_id)
+
+            # 2. Valida se o profissional existe e pertence à barbearia
+            profissional = self.profissional_repository.get_by_id_or_raise(profissional_id, barbearia_id)
+
+            # 3. Verifica se já existe o vínculo
+            if self.repository.exists_by_servico_and_profissional(servico_id, profissional_id):
+                raise ProfissionalJaHabilitadoException(profissional_id, servico_id)
+
+            # 4. Cria o vínculo
+            vinculo = self.repository.create(servico_id, profissional_id, habilitado=True)
+
+            # 5. Retorna sucesso
+            response_dto = self._to_servico_habilitado_response_dto(vinculo)
+            return ServiceResultSingleDTO(
+                success=True,
+                data=response_dto,
+                message=f"Profissional {profissional.usuario_nome} habilitado para o serviço {servico.nome}."
+            )
+
+        except ServicoNotFoundException as e:
+            return ServiceResultSingleDTO(
+                success=False,
+                error=e.message,
+                details=e.details
+            )
+        except ProfissionalNotFoundException as e:
+            return ServiceResultSingleDTO(
+                success=False,
+                error=e.message,
+                details=e.details
+            )
+        except ProfissionalJaHabilitadoException as e:
+            return ServiceResultSingleDTO(
+                success=False,
+                error=e.message,
+                details=e.details
+            )
+        except Exception as e:
+            logger.exception(f"Erro ao habilitar profissional: {e}")
+            return ServiceResultSingleDTO(
+                success=False,
+                error="Erro interno ao habilitar profissional"
+            )
+

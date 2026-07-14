@@ -424,8 +424,8 @@ class BarbeariaService:
             bairro=barbearia.bairro,
             cidade=barbearia.cidade,
             estado=barbearia.estado,
-            latitude=barbearia.localizacao.y,
-            longitude=barbearia.localizacao.x,
+            latitude=None,   # campo GIS removido do modelo
+            longitude=None,  # campo GIS removido do modelo
             telefone=barbearia.telefone,
             email=barbearia.email,
             ativo=barbearia.ativo,

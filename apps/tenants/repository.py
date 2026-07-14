@@ -34,9 +34,6 @@ Para busca global (ex: marketplace), usa-se unscoped_objects (UnscopedManager).
 from typing import List, Optional
 from uuid import UUID
 
-from django.contrib.gis.db.models.functions import Distance
-from django.contrib.gis.geos import Point
-from django.contrib.gis.measure import D
 from django.db import IntegrityError, transaction
 
 from apps.tenants.dtos import BarbeariaCreateDTO, BarbeariaUpdateDTO
@@ -95,8 +92,6 @@ class BarbeariaRepository:
         """
         with transaction.atomic():
             try:
-                localizacao = Point(dto.longitude, dto.latitude, srid=4326)
-
                 barbearia = Barbearia(
                     nome_comercial=dto.nome_comercial,
                     cnpj=dto.cnpj,
@@ -107,7 +102,6 @@ class BarbeariaRepository:
                     bairro=dto.bairro,
                     cidade=dto.cidade,
                     estado=dto.estado,
-                    localizacao=localizacao,
                     telefone=dto.telefone,
                     email=dto.email,
                     created_by_id=created_by,
@@ -158,9 +152,7 @@ class BarbeariaRepository:
             if dto.estado is not None:
                 barbearia.estado = dto.estado
                 fields_to_update.append('estado')
-            if dto.latitude is not None and dto.longitude is not None:
-                barbearia.localizacao = Point(dto.longitude, dto.latitude, srid=4326)
-                fields_to_update.append('localizacao')
+            # localizacao (GIS) removido — campo não existe no modelo atual
             if dto.telefone is not None:
                 barbearia.telefone = dto.telefone
                 fields_to_update.append('telefone')
@@ -201,21 +193,16 @@ class BarbeariaRepository:
         raio_km: float = 10.0
     ) -> List[Barbearia]:
         """
-        Busca barbearias ativas por proximidade geográfica.
+        Busca barbearias ativas.
 
-        📖 MANIFESTO: "Usar GEOGRAPHY(Point, 4326) para cálculos em metros reais"
-
-        Point(longitude, latitude) — ordem correta para PostGIS.
-        D(km=raio_km) — distância em metros reais via GEOGRAPHY.
+        ⚠️ NOTA: campo GIS 'localizacao' foi removido do modelo.
+        Retorna todas as barbearias ativas sem filtro de proximidade.
+        Para reativar busca geoespacial, reintegre django.contrib.gis e
+        adicione o campo PointField ao modelo Barbearia.
         """
-        ponto_usuario = Point(longitude, latitude, srid=4326)
-
         return list(
             Barbearia.objects.filter(
                 ativo=True,
                 is_deleted=False,
-                localizacao__distance_lte=(ponto_usuario, D(km=raio_km))
-            ).annotate(
-                distancia=Distance('localizacao', ponto_usuario)
-            ).order_by('distancia')
+            )
         )

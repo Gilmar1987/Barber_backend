@@ -211,3 +211,124 @@ class ProfissionalResponseSerializer(serializers.Serializer):
     usuario_nome = serializers.CharField(help_text="Nome do barbeiro")
     comissao_percentual = serializers.IntegerField()
     ativo = serializers.BooleanField()
+
+
+# ═══════════════════════════════════════════════════════════
+# SERIALIZERS DE GRADE HORÁRIA
+# ═══════════════════════════════════════════════════════════
+
+class GradeHorariaCreateSerializer(serializers.Serializer):
+    dia_semana = serializers.IntegerField(min_value=0, max_value=6, help_text="0=Domingo, 6=Sábado")
+    hora_inicio = serializers.TimeField()
+    hora_fim = serializers.TimeField()
+    intervalo_inicio = serializers.TimeField(required=False, allow_null=True)
+    intervalo_fim = serializers.TimeField(required=False, allow_null=True)
+    ativo = serializers.BooleanField(default=True)
+
+    def to_dto(self):
+        from apps.operacional.dtos import GradeHorariaCreateDTO
+        return GradeHorariaCreateDTO(
+            dia_semana=self.validated_data['dia_semana'],
+            hora_inicio=self.validated_data['hora_inicio'],
+            hora_fim=self.validated_data['hora_fim'],
+            intervalo_inicio=self.validated_data.get('intervalo_inicio'),
+            intervalo_fim=self.validated_data.get('intervalo_fim'),
+            ativo=self.validated_data.get('ativo', True)
+        )
+
+
+class GradeHorariaUpdateSerializer(serializers.Serializer):
+    hora_inicio = serializers.TimeField(required=False)
+    hora_fim = serializers.TimeField(required=False)
+    intervalo_inicio = serializers.TimeField(required=False, allow_null=True)
+    intervalo_fim = serializers.TimeField(required=False, allow_null=True)
+    ativo = serializers.BooleanField(required=False)
+
+    def to_dto(self):
+        from apps.operacional.dtos import GradeHorariaUpdateDTO
+        return GradeHorariaUpdateDTO(
+            hora_inicio=self.validated_data.get('hora_inicio'),
+            hora_fim=self.validated_data.get('hora_fim'),
+            intervalo_inicio=self.validated_data.get('intervalo_inicio'),
+            intervalo_fim=self.validated_data.get('intervalo_fim'),
+            ativo=self.validated_data.get('ativo')
+        )
+
+
+# ═══════════════════════════════════════════════════════════
+# SERIALIZERS DE INDISPONIBILIDADES
+# ═══════════════════════════════════════════════════════════
+
+class DiaIndisponivelCreateSerializer(serializers.Serializer):
+    data = serializers.DateField()
+    motivo = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+    def to_dto(self):
+        from apps.operacional.dtos import DiaIndisponivelCreateDTO
+        return DiaIndisponivelCreateDTO(
+            data=self.validated_data['data'],
+            motivo=self.validated_data.get('motivo')
+        )
+
+
+class IntervaloIndisponivelCreateSerializer(serializers.Serializer):
+    data = serializers.DateField()
+    hora_inicio = serializers.TimeField()
+    hora_fim = serializers.TimeField()
+    motivo = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+    def to_dto(self):
+        from apps.operacional.dtos import IntervaloIndisponivelCreateDTO
+        return IntervaloIndisponivelCreateDTO(
+            data=self.validated_data['data'],
+            hora_inicio=self.validated_data['hora_inicio'],
+            hora_fim=self.validated_data['hora_fim'],
+            motivo=self.validated_data.get('motivo')
+        )
+
+
+# ═══════════════════════════════════════════════════════════
+# SERIALIZERS DE HABILITAÇÃO SERVIÇO-PROFISSIONAL
+# ═══════════════════════════════════════════════════════════
+
+class ServicoProfissionalCreateSerializer(serializers.Serializer):
+    servico_id = serializers.IntegerField()
+    profissional_id = serializers.IntegerField()
+    habilitado = serializers.BooleanField(default=True)
+
+    def to_dto(self):
+        from apps.operacional.dtos import ServicoProfissionalCreateDTO
+        return ServicoProfissionalCreateDTO(
+            servico_id=self.validated_data['servico_id'],
+            profissional_id=self.validated_data['profissional_id'],
+            habilitado=self.validated_data.get('habilitado', True)
+        )
+
+
+# ═══════════════════════════════════════════════════════════
+# SERIALIZERS DE CONVITE PROFISSIONAL (Fluxo Híbrido)
+# ═══════════════════════════════════════════════════════════
+
+class ConviteProfissionalCreateSerializer(serializers.Serializer):
+    nome_completo = serializers.CharField(max_length=255, min_length=3)
+    email = serializers.EmailField()
+    cpf = serializers.CharField(max_length=11, min_length=11)
+    telefone = serializers.CharField(max_length=15, required=False, allow_blank=True)
+    comissao_percentual = serializers.IntegerField(min_value=0, max_value=100)
+
+    def validate_cpf(self, value):
+        return ''.join(filter(str.isdigit, value))
+
+    def to_dto(self):
+        from apps.operacional.dtos import ConviteProfissionalCreateDTO
+        return ConviteProfissionalCreateDTO(
+            nome_completo=self.validated_data['nome_completo'].strip(),
+            email=self.validated_data['email'].lower().strip(),
+            cpf=self.validated_data['cpf'],
+            telefone=self.validated_data.get('telefone'),
+            comissao_percentual=self.validated_data['comissao_percentual']
+        )
+
+
+class ConviteAceiteSerializer(serializers.Serializer):
+    token = serializers.CharField(max_length=64)

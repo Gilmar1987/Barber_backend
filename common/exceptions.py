@@ -361,3 +361,27 @@ class ConviteJaRespondidoException(DomainException):
                 'status': status
             }
         )
+
+class ProfissionalJaVinculadoException(DomainException):
+    """Exceção lançada quando o barbeiro já está vinculado à barbearia."""
+
+    def __init__(self, usuario_id: UUID, barbearia_id: UUID):
+        self.usuario_id = usuario_id
+        self.barbearia_id = barbearia_id
+        super().__init__(
+            message="Este barbeiro já está vinculado a esta barbearia",
+            details={
+                'usuario_id': str(usuario_id),
+                'barbearia_id': str(barbearia_id)
+            }
+        )
+
+class ProfissionalJaHabilitadoException(DomainException):
+    """Exceção lançada quando o profissional já está habilitado."""
+
+    def __init__(self, profissional_id: int):
+        self.profissional_id = profissional_id
+        super().__init__(
+            message=f"O profissional {profissional_id} já está habilitado",
+            details={'profissional_id': profissional_id}
+        )

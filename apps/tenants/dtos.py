@@ -142,8 +142,8 @@ class BarbeariaResponseDTO(BaseModel):
     bairro: str
     cidade: str
     estado: str
-    latitude: float
-    longitude: float
+    latitude: Optional[float]
+    longitude: Optional[float]
     telefone: Optional[str]
     email: str
     ativo: bool

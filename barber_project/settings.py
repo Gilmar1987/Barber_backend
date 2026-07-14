@@ -35,7 +35,6 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'django.contrib.gis',
     
     # Third-party apps
     'rest_framework',
@@ -49,6 +48,7 @@ INSTALLED_APPS = [
     # Local apps
     'apps.core',
     'apps.tenants',
+
     'apps.operacional',
 ]
 
@@ -89,12 +89,15 @@ WSGI_APPLICATION = 'barber_project.wsgi.application'
 
 # Database
 DATABASES = {
-    'default': env.db(
-        'DATABASE_URL',
-        default='postgis://usuario_postgres:senha_postgres@db:5432/barber_db'
-    ),
+    'default': {
+        'ENGINE': 'django.contrib.gis.db.backends.postgis',  # ← CORRIGIDO: PostGIS
+        'NAME': os.getenv('POSTGRES_DB', 'barber_db'),
+        'USER': os.getenv('POSTGRES_USER', 'usuario_postgres'),
+        'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'senha_postgres'),
+        'HOST': os.getenv('POSTGRES_HOST', 'db'),
+        'PORT': os.getenv('POSTGRES_PORT', '5432'),
+    }
 }
-DATABASES['default']['ENGINE'] = 'django.contrib.gis.db.backends.postgis'
 
 # Custom User Model
 AUTH_USER_MODEL = 'core.Usuario'

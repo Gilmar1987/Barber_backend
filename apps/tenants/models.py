@@ -1,11 +1,9 @@
 
-# <scope: barber_backend:tenants>
-# <governance: multi_tenant_enforcement_active>
+# [Domínio: tenants] [Skill: model]
 """
 📖 MANIFESTO (Geolocalização):
 "CRÍTICO: Usar GEOGRAPHY, não GEOMETRY"
 "GEOGRAPHY calcula em metros reais"
-"GEOMETRY calcula em graus (bug matemático)"
 
 ✅ Regras seguidas:
 - UUID como primary key (segurança em URLs)
@@ -13,7 +11,6 @@
 - GEOGRAPHY(Point, 4326) para cálculos em metros reais
 - Trilha de auditoria completa
 - Soft delete (is_deleted, deleted_at, deleted_by)
-- Índices para performance
 """
 import uuid
 from typing import Optional
@@ -25,12 +22,8 @@ from common.managers import UnscopedManager
 
 
 class Barbearia(models.Model):
-    """
-    Modelo de Barbearia com geolocalização e multi-tenant.
-    Cada Barbearia é um tenant isolado no sistema
-    """
-    objects = models.Manager()        # Manager padrão — sem filtro de tenant (Barbearia É o tenant)
-    unscoped_objects = UnscopedManager()  # Alias explícito para operações administrativas
+    objects = models.Manager()
+    unscoped_objects = UnscopedManager()
 
     id = models.UUIDField(
         primary_key=True,
@@ -52,7 +45,6 @@ class Barbearia(models.Model):
         db_index=True,
         help_text="CNPJ da barbearia (apenas 14 números)"
     )
-    
     cep = models.CharField(
         max_length=8,
         null=False,
@@ -96,13 +88,15 @@ class Barbearia(models.Model):
         help_text="Estado da barbearia (sigla Ex: PE, SP, RJ)"
     )
     
+    # ✅ CAMPO POSTGIS RESTAURADO (Essencial para US01 - Busca por Proximidade)
     localizacao = gis_models.PointField(
-        geography=True,
-        srid=4326, #WGS84 (GPS padrão)
-        null=False,
-        blank=False,
-        help_text="Localização geográfica (lat/lng)"
+        geography=True,  # ✅ GEOGRAPHY calcula em metros reais
+        srid=4326,
+        null=True,
+        blank=True,
+        help_text="Ponto geométrico geoespacial (Longitude, Latitude)"
     )
+
     telefone = models.CharField(
         max_length=15,
         null=True,
@@ -114,75 +108,45 @@ class Barbearia(models.Model):
         blank=False,
         help_text="Email comercial da barbearia"
     )
-    #Status
     ativo = models.BooleanField(
         default=True,
         db_index=True,
         help_text="Indica se a barbearia está ativa"
     )
 
-    #Trilha de auditoria
-
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        help_text="Timestamp de criação"
-    )
-    updated_at = models.DateTimeField(
-        auto_now=True,
-        help_text="Timestamp de atualização"
-    )
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        null=True,
-        blank=True,
-        related_name='created_barbearias',
-        on_delete=models.SET_NULL,
-        help_text="Usuário que criou o registro"
-    )
-    updated_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        null=True,
-        blank=True,
-        related_name='updated_barbearias',
-        on_delete=models.SET_NULL,
-        help_text="Usuário que atualizou o registro"
-    )
-    # Novos campos para configuração operacional padrão
+    # Configuração operacional padrão
     balanceamento_minutos = models.IntegerField(
-    default=60,
-    help_text="Minutos antes do intervalo para encaixar agendamentos curtos (máx 60)"
+        default=60,
+        help_text="Minutos antes do intervalo para encaixar agendamentos curtos (máx 60)"
     )
     buffer_minutos = models.IntegerField(
-    default=0,
-    help_text="Minutos de buffer entre agendamentos (tempo de limpeza/preparação)"
+        default=0,
+        help_text="Minutos de buffer entre agendamentos (tempo de limpeza/preparação)"
     )
     slot_padrao_minutos = models.IntegerField(
-    default=30,
-    help_text="Duração padrão do slot de agendamento em minutos"
+        default=30,
+        help_text="Duração padrão do slot de agendamento em minutos"
     )
 
-    #SoftDelete
-    is_deleted = models.BooleanField(
-        default=False,
-        db_index=True,
-        help_text="Indica se o registro foi soft deleted"
+    # Trilha de auditoria
+    created_at = models.DateTimeField(auto_now_add=True, help_text="Timestamp de criação")
+    updated_at = models.DateTimeField(auto_now=True, help_text="Timestamp de atualização")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, related_name='created_barbearias',
+        on_delete=models.SET_NULL, help_text="Usuário que criou o registro"
     )
-    
-    deleted_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="Timestamp do delete"
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, related_name='updated_barbearias',
+        on_delete=models.SET_NULL, help_text="Usuário que atualizou o registro"
     )
+
+    # Soft Delete
+    is_deleted = models.BooleanField(default=False, db_index=True, help_text="Indica se o registro foi soft deleted")
+    deleted_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp do delete")
     deleted_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        null=True,
-        blank=True,
-        related_name='deleted_barbearias',
-        on_delete=models.SET_NULL,
-        help_text="Usuário que deletou o registro"
+        settings.AUTH_USER_MODEL, null=True, blank=True, related_name='deleted_barbearias',
+        on_delete=models.SET_NULL, help_text="Usuário que deletou o registro"
     )
-   
-   
 
     class Meta:
         verbose_name = "Barbearia"
@@ -191,38 +155,28 @@ class Barbearia(models.Model):
         indexes = [
             models.Index(fields=['cnpj'], name='idx_barbearia_cnpj'),
             models.Index(fields=['ativo', 'is_deleted'], name='idx_barbearia_ativo'),
-            models.Index(fields=['cidade','estado'], name='idx_barbearia_cidade_estado'),
+            models.Index(fields=['cidade', 'estado'], name='idx_barbearia_cidade_estado'),
             models.Index(fields=['created_at'], name='idx_barbearia_created_at'),
+            # Índice GIST para consultas espaciais rápidas (US01)
             gis_models.Index(fields=['localizacao'], name='idx_barbearia_localizacao'),
         ]
+
     def __str__(self) -> str:
         return f"{self.nome_comercial} ({self.cidade}/{self.estado})"
     
     def get_cnpj_masked(self) -> str:
-        """Retorna CNPJ mascarado para LGPD."""
         if self.cnpj and len(self.cnpj) >= 2:
             return f"{self.cnpj[:2]}.***.***{self.cnpj[-1]}"
         return "**.***.***"
 
     def get_endereco_completo(self) -> str:
-        """Retorna endereço completo formatado."""
-        partes = [
-            self.logradouro,
-            self.numero,
-            self.complemento,
-            self.bairro,
-            f"{self.cidade}/{self.estado}",
-            self.cep,
-        ]
+        partes = [self.logradouro, self.numero, self.complemento, self.bairro, f"{self.cidade}/{self.estado}", self.cep]
         return ", ".join(parte for parte in partes if parte)
 
     def soft_delete(self, user_id: Optional[uuid.UUID] = None) -> None:
-        """Realiza soft delete da barbearia."""
         from django.utils import timezone
         self.is_deleted = True
         self.deleted_at = timezone.now()
         if user_id:
             self.deleted_by_id = user_id
         self.save(update_fields=['is_deleted', 'deleted_at', 'deleted_by'])
-
-    
