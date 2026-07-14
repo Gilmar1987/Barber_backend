@@ -838,3 +838,204 @@ class ConviteAceitarView(APIView):
         
         result = self.service.aceitar_convite(serializer.validated_data['token'])
         return Response(result.model_dump(), status=200 if result.success else 400)
+    
+
+# ═══════════════════════════════════════════════════════════
+# VIEWS DE ATUALIZAÇÃO E DELEÇÃO (Grade, Indisponibilidades)
+# ═══════════════════════════════════════════════════════════
+
+class GradeHorariaUpdateView(APIView):
+    """Atualiza grade horária existente (apenas DONO)."""
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = GradeHorariaService()
+    
+    @extend_schema(
+        request=GradeHorariaUpdateSerializer,
+        tags=['Grade Horária']
+    )
+    def put(self, request: Request, grade_id: int) -> Response:
+        forbid_response = _forbid_if_not_dono(request)
+        if forbid_response: return forbid_response
+        
+        barbearia_id = _get_barbearia_id_from_jwt_or_none(request)
+        if not barbearia_id:
+            return Response({'success': False, 'error': 'Acesso negado'}, status=403)
+        
+        # Descobre o profissional_id a partir da grade
+        from apps.operacional.repository import GradeHorariaRepository
+        grade_repo = GradeHorariaRepository()
+        grade = grade_repo.get_by_id(grade_id, profissional_id=None)
+        
+        # Busca grade sem filtro de profissional para validar pertencimento
+        from apps.operacional.models import GradeHoraria
+        try:
+            grade_obj = GradeHoraria.objects.select_related('profissional').get(id=grade_id)
+            if grade_obj.profissional.barbearia_id != barbearia_id:
+                return Response({'success': False, 'error': 'Grade não pertence à sua barbearia'}, status=403)
+            profissional_id = grade_obj.profissional_id
+        except GradeHoraria.DoesNotExist:
+            return Response({'success': False, 'error': 'Grade não encontrada'}, status=404)
+        
+        serializer = GradeHorariaUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'success': False, 'errors': serializer.errors}, status=400)
+        
+        result = self.service.atualizar_grade(
+            grade_id, serializer.to_dto(), profissional_id, barbearia_id, request.user.id
+        )
+        return Response(result.model_dump(), status=200 if result.success else 400)
+
+
+class GradeHorariaDeleteView(APIView):
+    """Remove grade horária (apenas DONO)."""
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = GradeHorariaService()
+    
+    @extend_schema(tags=['Grade Horária'])
+    def delete(self, request: Request, grade_id: int) -> Response:
+        forbid_response = _forbid_if_not_dono(request)
+        if forbid_response: return forbid_response
+        
+        barbearia_id = _get_barbearia_id_from_jwt_or_none(request)
+        if not barbearia_id:
+            return Response({'success': False, 'error': 'Acesso negado'}, status=403)
+        
+        # Valida pertencimento à barbearia
+        from apps.operacional.models import GradeHoraria
+        try:
+            grade = GradeHoraria.objects.select_related('profissional').get(id=grade_id)
+            if grade.profissional.barbearia_id != barbearia_id:
+                return Response({'success': False, 'error': 'Grade não pertence à sua barbearia'}, status=403)
+            grade.delete()
+            return Response({
+                'success': True,
+                'message': 'Grade horária removida com sucesso'
+            }, status=200)
+        except GradeHoraria.DoesNotExist:
+            return Response({'success': False, 'error': 'Grade não encontrada'}, status=404)
+
+
+class DiaIndisponivelDeleteView(APIView):
+    """Remove dia indisponível (DONO ou o próprio BARBEIRO)."""
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = DiaIndisponivelService()
+    
+    @extend_schema(tags=['Indisponibilidade'])
+    def delete(self, request: Request, dia_id: int) -> Response:
+        barbearia_id = _get_barbearia_id_from_jwt_or_none(request)
+        if not barbearia_id:
+            return Response({'success': False, 'error': 'Acesso negado'}, status=403)
+        
+        # Valida pertencimento à barbearia
+        from apps.operacional.models import DiaIndisponivel
+        try:
+            dia = DiaIndisponivel.objects.select_related('profissional').get(id=dia_id)
+            if dia.profissional.barbearia_id != barbearia_id:
+                return Response({'success': False, 'error': 'Registro não pertence à sua barbearia'}, status=403)
+            dia.delete()
+            return Response({
+                'success': True,
+                'message': 'Dia indisponível removido com sucesso'
+            }, status=200)
+        except DiaIndisponivel.DoesNotExist:
+            return Response({'success': False, 'error': 'Dia indisponível não encontrado'}, status=404)
+
+
+class IntervaloIndisponivelDeleteView(APIView):
+    """Remove intervalo indisponível (DONO ou o próprio BARBEIRO)."""
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = IntervaloIndisponivelService()
+    
+    @extend_schema(tags=['Indisponibilidade'])
+    def delete(self, request: Request, intervalo_id: int) -> Response:
+        barbearia_id = _get_barbearia_id_from_jwt_or_none(request)
+        if not barbearia_id:
+            return Response({'success': False, 'error': 'Acesso negado'}, status=403)
+        
+        from apps.operacional.models import IntervaloIndisponivel
+        try:
+            intervalo = IntervaloIndisponivel.objects.select_related('profissional').get(id=intervalo_id)
+            if intervalo.profissional.barbearia_id != barbearia_id:
+                return Response({'success': False, 'error': 'Registro não pertence à sua barbearia'}, status=403)
+            intervalo.delete()
+            return Response({
+                'success': True,
+                'message': 'Intervalo indisponível removido com sucesso'
+            }, status=200)
+        except IntervaloIndisponivel.DoesNotExist:
+            return Response({'success': False, 'error': 'Intervalo indisponível não encontrado'}, status=404)
+
+
+# ═══════════════════════════════════════════════════════════
+# VIEWS DE HABILITAÇÃO DE SERVIÇOS (Listagem e Toggle)
+# ═══════════════════════════════════════════════════════════
+
+class ServicoProfissionaisListView(APIView):
+    """Lista profissionais habilitados para um serviço."""
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = ServicoProfissionalService()
+    
+    @extend_schema(tags=['Habilitação de Serviços'])
+    def get(self, request: Request, servico_id: int) -> Response:
+        barbearia_id = _get_barbearia_id_from_jwt_or_none(request)
+        if not barbearia_id:
+            return Response({'success': False, 'error': 'Acesso negado'}, status=403)
+        
+        result = self.service.listar_profissionais_habilitados(servico_id, barbearia_id)
+        return Response(result.model_dump(), status=200 if result.success else 404)
+
+
+class ServicoProfissionalToggleView(APIView):
+    """Alterna habilitação de um profissional para um serviço (apenas DONO)."""
+    permission_classes = [IsAuthenticated]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = ServicoProfissionalService()
+    
+    @extend_schema(tags=['Habilitação de Serviços'])
+    def post(self, request: Request, servico_id: int, profissional_id: int) -> Response:
+        forbid_response = _forbid_if_not_dono(request)
+        if forbid_response: return forbid_response
+        
+        barbearia_id = _get_barbearia_id_from_jwt_or_none(request)
+        if not barbearia_id:
+            return Response({'success': False, 'error': 'Acesso negado'}, status=403)
+        
+        # Verifica se já existe vínculo
+        from apps.operacional.repository import ServicoProfissionalRepository
+        repo = ServicoProfissionalRepository()
+        vinculo = repo.get_by_servico_and_profissional(servico_id, profissional_id)
+        
+        if vinculo:
+            # Toggle existente
+            vinculo.habilitado = not vinculo.habilitado
+            vinculo.save(update_fields=['habilitado'])
+            from apps.operacional.repository import ServicoRepository, ProfissionalRepository
+            servico = ServicoRepository().get_by_id_or_raise(servico_id, barbearia_id)
+            profissional = ProfissionalRepository().get_by_id_or_raise(profissional_id, barbearia_id)
+            response_dto = self.service._to_response_dto(vinculo, servico, profissional)
+            return Response({
+                'success': True,
+                'data': response_dto.model_dump(),
+                'message': f"Profissional {'habilitado' if vinculo.habilitado else 'desabilitado'} com sucesso"
+            }, status=200)
+        else:
+            # Cria novo vínculo habilitado
+            result = self.service.habilitar_profissional(servico_id, profissional_id, barbearia_id, request.user.id)
+            return Response(result.model_dump(), status=201 if result.success else 400)

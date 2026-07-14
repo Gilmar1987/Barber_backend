@@ -332,3 +332,50 @@ class ConviteProfissionalCreateSerializer(serializers.Serializer):
 
 class ConviteAceiteSerializer(serializers.Serializer):
     token = serializers.CharField(max_length=64)
+
+
+
+# ═══════════════════════════════════════════════════════════
+# SERIALIZERS DE RESPOSTA (Documentação Swagger)
+# ═══════════════════════════════════════════════════════════
+
+class GradeHorariaResponseSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    profissional_id = serializers.IntegerField()
+    dia_semana = serializers.IntegerField()
+    dia_semana_nome = serializers.CharField()
+    hora_inicio = serializers.TimeField()
+    hora_fim = serializers.TimeField()
+    intervalo_inicio = serializers.TimeField(allow_null=True)
+    intervalo_fim = serializers.TimeField(allow_null=True)
+    ativo = serializers.BooleanField()
+
+
+class DiaIndisponivelResponseSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    profissional_id = serializers.IntegerField()
+    data = serializers.DateField()
+    motivo = serializers.CharField(allow_null=True)
+    criado_por_id = serializers.UUIDField(allow_null=True)
+    data_criacao = serializers.DateTimeField()
+
+
+class IntervaloIndisponivelResponseSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    profissional_id = serializers.IntegerField()
+    data = serializers.DateField()
+    hora_inicio = serializers.TimeField()
+    hora_fim = serializers.TimeField()
+    motivo = serializers.CharField(allow_null=True)
+    criado_por_id = serializers.UUIDField(allow_null=True)
+    data_criacao = serializers.DateTimeField()
+
+
+class ServicoHabilitadoResponseSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    servico_id = serializers.IntegerField()
+    servico_nome = serializers.CharField()
+    profissional_id = serializers.IntegerField()
+    profissional_nome = serializers.CharField()
+    habilitado = serializers.BooleanField()
+    data_criacao = serializers.DateTimeField()
