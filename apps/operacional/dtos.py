@@ -24,6 +24,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # DTOs de SERVIÇO (core_servico)
 # ═══════════════════════════════════════════════════════════
 
+
+
 class ServicoCreateDTO(BaseModel):
     """DTO para criação de serviço."""
     nome: str = Field(..., min_length=3, max_length=100)
@@ -31,6 +33,21 @@ class ServicoCreateDTO(BaseModel):
     duracao_minutos: int = Field(default=30, ge=5)
     ativo: bool = True
     todos_profissionais_habilitados: bool = True
+    profissional_ids: Optional[List[int]] = Field(
+        default=None,
+        description="Lista de IDs de profissionais habilitados (usado quando todos_profissionais_habilitados=False)"
+    )
+    
+    @field_validator('profissional_ids')
+    @classmethod
+    def validar_profissional_ids(cls, v, info):
+        todos_habilitados = info.data.get('todos_profissionais_habilitados', True)
+        if not todos_habilitados and (v is None or len(v) == 0):
+            raise ValueError(
+                'Quando todos_profissionais_habilitados=False, '
+                'é obrigatório informar pelo menos um profissional em profissional_ids'
+            )
+        return v
 
 
 class ServicoUpdateDTO(BaseModel):

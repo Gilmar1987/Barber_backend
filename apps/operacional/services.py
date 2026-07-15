@@ -77,7 +77,8 @@ from common.exceptions import (
     ConviteDuplicadoException,
     ProfissionalJaVinculadoException,
     ConviteJaRespondidoException,
-    ProfissionalJaHabilitadoException
+    ProfissionalJaHabilitadoException,
+    DuplicateResourceException,
     
     
     
@@ -93,39 +94,110 @@ class ServicoService:
     def __init__(self, repository: Optional[ServicoRepository] = None):
         self.repository = repository or ServicoRepository()
 
+
     def criar_servico(
         self,
         dto: ServicoCreateDTO,
         barbearia_id: UUID,
         user_id: Optional[UUID] = None,
     ) -> ServiceResultSingleDTO:
-        """Cria novo serviço vinculado à barbearia."""
+        """
+        Cria novo serviço com validações de negócio.
+        """
         try:
-            servico = self.repository.create(dto, barbearia_id=barbearia_id, created_by=user_id)
-            logger.info('Serviço criado: %s | barbearia: %s', servico.id, barbearia_id)
-            response_dto = self._to_response_dto(servico)
-            result = ServiceResultSingleDTO(success=True, data=response_dto)
-
+            # 1. Validação de negócio: nome único na barbearia
+            # CORREÇÃO: usar exists_by_nome_na_barbearia
+            if self.repository.exists_by_nome_na_barbearia(dto.nome, barbearia_id):
+                raise DuplicateResourceException('nome', dto.nome)
+            
+            # 2. Persistência via Repository
+            servico = self.repository.create(dto, barbearia_id)
+            
+            # 3. Se todos_profissionais_habilitados=False, criar vínculos
+            profissionais_habilitados = []
+            if not dto.todos_profissionais_habilitados and dto.profissional_ids:
+                from apps.operacional.repository import ServicoProfissionalRepository, ProfissionalRepository
+                prof_repo = ProfissionalRepository()
+                vinculo_repo = ServicoProfissionalRepository()
+                
+                for prof_id in dto.profissional_ids:
+                    # Valida se o profissional pertence à barbearia (isolamento multi-tenant)
+                    profissional = prof_repo.get_by_id(prof_id, barbearia_id)
+                    if not profissional:
+                        # Rollback: deleta o serviço criado
+                        servico.delete()
+                        return ServiceResultSingleDTO(
+                            success=False,
+                            error=f"Profissional ID {prof_id} não encontrado nesta barbearia",
+                            details={'profissional_id': prof_id}
+                        )
+                    
+                    # Cria vínculo
+                    vinculo = vinculo_repo.create(
+                        servico_id=servico.id,
+                        profissional_id=prof_id,
+                        habilitado=True
+                    )
+                    profissionais_habilitados.append({
+                        'profissional_id': prof_id,
+                        'profissional_nome': profissional.usuario.get_full_name() or profissional.usuario.username,
+                        'habilitado': True
+                    })
+            
+            # 4. EDA: Dispara evento assíncrono (opcional, pode falhar sem quebrar o fluxo)
             try:
+                from common.events import EventType, dispatch_event
                 dispatch_event(
-                    event_type=EventType.TENANT_UPDATED,
+                    event_type=EventType.SERVICE_CREATED,
                     tenant_id=barbearia_id,
-                    user_id=user_id or barbearia_id,
-                    data={'servico_id': servico.id, 'action': 'servico_criado'},
+                    user_id=user_id or servico.id,
+                    data={
+                        'servico_id': servico.id,
+                        'nome': servico.nome,
+                        'preco': str(servico.preco),
+                        'duracao_minutos': servico.duracao_minutos,
+                        'todos_profissionais_habilitados': servico.todos_profissionais_habilitados,
+                        'profissionais_habilitados_count': len(profissionais_habilitados),
+                    }
                 )
-            except Exception:
-                logging.exception('Falha ao disparar evento servico_criado')
+            except Exception as e:
+                logger.warning(f"Evento falhou (não crítico): {e}")
+            
+            logger.info(
+                f"Serviço criado: {servico.id} | Nome: {servico.nome} | "
+                f"Profissionais habilitados: {len(profissionais_habilitados)}"
+            )
+            
+            # 5. Converte para DTO de resposta
+            response_dto = self._to_response_dto(servico)
+            
+            # 6. Adiciona detalhes sobre profissionais habilitados (se houver)
+            details = None
+            if profissionais_habilitados:
+                details = {'profissionais_habilitados': profissionais_habilitados}
+            
+            return ServiceResultSingleDTO(
+                success=True,
+                data=response_dto,
+                details=details
+            )
+        
+        except DuplicateResourceException as e:
+            logger.warning(f"Nome duplicado: {e.details}")
+            return ServiceResultSingleDTO(
+                success=False,
+                error=e.message,
+                details=e.details
+            )
+        except Exception as e:
+            logger.error(f"Erro ao criar serviço: {e}", exc_info=True)
+            return ServiceResultSingleDTO(
+                success=False,
+                error="Erro interno ao criar serviço"
+            )
 
-            return result
 
-        except DomainException as e:
-            return ServiceResultSingleDTO(success=False, error=e.message, details=e.details)
-        except (DatabaseError, OperationalError):
-            logging.exception('Erro de banco ao criar serviço')
-            return ServiceResultSingleDTO(success=False, error='Erro interno ao criar serviço')
-        except Exception:
-            logging.exception('Erro inesperado ao criar serviço')
-            return ServiceResultSingleDTO(success=False, error='Erro interno ao criar serviço')
+    
 
     def obter_servico(self, servico_id: int, barbearia_id: UUID) -> ServiceResultSingleDTO:
         """Retorna dados de um serviço específico."""

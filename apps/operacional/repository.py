@@ -181,7 +181,14 @@ class ServicoRepository:
         #     status='CONCLUIDO'
         # ).exists()
         return False
-
+    
+    @staticmethod
+    def exists_by_nome_na_barbearia(nome: str, barbearia_id: UUID) -> bool:
+        """Verifica se já existe um serviço com este nome nesta barbearia."""
+        return Servico.objects.filter(
+            nome__iexact=nome.strip(),
+            barbearia_id=barbearia_id
+        ).exists()
 
 # ═══════════════════════════════════════════════════════════
 # REPOSITÓRIO DE PROFISSIONAL

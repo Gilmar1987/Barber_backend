@@ -27,46 +27,51 @@ from rest_framework import serializers
 # SERIALIZERS DE SERVIÇO
 # ═══════════════════════════════════════════════════════════
 
+
 class ServicoCreateSerializer(serializers.Serializer):
-    """
-    Serializer para criação de serviço.
-    Higieniza e valida dados antes de converter para DTO.
-    """
-    nome = serializers.CharField(
-        max_length=100,
-        min_length=3,
-        help_text="Nome legível do serviço (ex: 'Barba Terapia')"
-    )
-    preco = serializers.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        min_value=Decimal('0.01'),
-        help_text="Preço nominal cobrado (deve ser > 0)"
-    )
-    duracao_minutos = serializers.IntegerField(
-        min_value=5,
-        default=30,
-        help_text="Bloqueio de tempo na agenda (mínimo 5 minutos)"
-    )
-    ativo = serializers.BooleanField(
-        default=True,
-        help_text="Serviço disponível para agendamento"
+    nome = serializers.CharField(max_length=100, min_length=3)
+    preco = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal('0.01'))
+    duracao_minutos = serializers.IntegerField(min_value=5, default=30)
+    ativo = serializers.BooleanField(default=True)
+    todos_profissionais_habilitados = serializers.BooleanField(default=True)
+    profissional_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        allow_empty=True,
+        help_text="Lista de IDs de profissionais habilitados (obrigatório se todos_profissionais_habilitados=False)"
     )
     
-    def validate_nome(self, value: str) -> str:
-        """Higieniza o nome do serviço."""
+    def validate_nome(self, value):
         return value.strip()
     
-    def to_dto(self):
-        """Converte dados validados para Pydantic DTO."""
-        from apps.operacional.dtos import ServicoCreateDTO
+    def validate(self, data):
+        """Validação cross-field: se todos=False, exige profissional_ids."""
+        todos_habilitados = data.get('todos_profissionais_habilitados', True)
+        profissional_ids = data.get('profissional_ids')
         
+        if not todos_habilitados and (not profissional_ids or len(profissional_ids) == 0):
+            raise serializers.ValidationError({
+                'profissional_ids': 'Quando todos_profissionais_habilitados=False, '
+                                    'é obrigatório informar pelo menos um profissional.'
+            })
+        
+        # Se todos=True, ignora profissional_ids (limpa para evitar confusão)
+        if todos_habilitados and profissional_ids:
+            data['profissional_ids'] = None
+        
+        return data
+    
+    def to_dto(self):
+        from apps.operacional.dtos import ServicoCreateDTO
         return ServicoCreateDTO(
-            nome=self.validated_data['nome'],
+            nome=self.validated_data['nome'].strip(),
             preco=self.validated_data['preco'],
             duracao_minutos=self.validated_data.get('duracao_minutos', 30),
             ativo=self.validated_data.get('ativo', True),
+            todos_profissionais_habilitados=self.validated_data.get('todos_profissionais_habilitados', True),
+            profissional_ids=self.validated_data.get('profissional_ids')
         )
+
 
 
 class ServicoUpdateSerializer(serializers.Serializer):

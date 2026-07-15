@@ -34,6 +34,8 @@ class EventType(str, Enum):
     # Tenants
     TENANT_CREATED = "tenant.created"
     TENANT_UPDATED = "tenant.updated"
+    SERVICE_CREATED = "service.created"
+    SERVICE_UPDATED = "service.updated"
     
     # Agenda
     APPOINTMENT_SCHEDULED = "appointment.scheduled"

@@ -111,6 +111,16 @@ class ServicoNotFoundException(DomainException):
             }
         )
 
+class DuplicateResourceException(DomainException):
+    """Exceção lançada quando há tentativa de criar recurso duplicado."""
+    
+    def __init__(self, nome: str):
+        super().__init__(
+            message=f"Serviço com nome '{nome}' já existe",
+            code="DUPLICATE_SERVICE_NAME",
+            details={"nome": nome}
+        )
+        
 
 class ProfissionalNotFoundException(DomainException):
     """Exceção lançada quando um profissional não é encontrado."""
