@@ -10,8 +10,13 @@
 - Services disparam eventos via dispatch_event
 """
 import logging
-from typing import Optional
+import requests
+from typing import Optional, Dict
+from decimal import Decimal
+from django.conf import settings
 from uuid import UUID
+
+from apps.core.models import GeolocalizacaoCache
 
 from apps.core.dtos import (
     ServiceResultListDTO,
@@ -284,3 +289,89 @@ class UsuarioService:
                 success=False,
                 error="Erro interno ao deletar usuário"
             )
+        
+class GeolocalizacaoService:
+    """
+    Service para operações com geolocalização e cache de CEP.
+    """
+
+    API_URL = "https://www.cepaberto.com/api/v3/cep"
+
+    @staticmethod
+    def obter_ou_criar_cache(
+        cep: str,
+        latitude_manual: Optional[float]=None,
+        longitude_manual: Optional[float]=None
+    ) -> Optional[Dict[str, float]]:
+        """
+        Obtém geolocalização de um CEP, usando cache local.
+        Se não encontrado no cache, consulta API externa e salva no cache.
+        Retorna dict com latitude e longitude ou None se falhar.
+        
+
+        """
+
+        cep_limpo = ''.join(filter(str.isdigit, cep))
+        # 1. Higienização
+        if len(cep_limpo) != 8:
+            logger.warning("CEP inválido: %s", cep)
+            return None
+        
+        # 2. Busca no cache
+        cache_item = GeolocalizacaoCache.objects.filter(cep=cep_limpo).first()
+        if cache_item and cache_item.latitude is not None and cache_item.longitude is not None:
+            return {"latitude": cache_item.latitude, "longitude": cache_item.longitude}
+        
+        # 3. Se manual, usa valores fornecidos
+        if latitude_manual is not None and longitude_manual is not None:
+            GeolocalizacaoCache.objects.update_or_create(
+                cep=cep_limpo,
+                defaults={
+                    "latitude": latitude_manual,
+                    "longitude": longitude_manual,
+                    "cidade": "Manual",
+                    "estado": "XX",
+                }
+            )
+            logger.info("Geolocalização manual para CEP %s: (%f, %f)", cep_limpo, latitude_manual, longitude_manual)
+            return {"latitude": float(latitude_manual), "longitude": float(longitude_manual)}
+        
+        # 4. Consulta API externa
+        api_token = getattr(settings, 'CEP_ABERTO_TOKEN', None)        
+            
+        if not api_token:
+            logger.error("CEP Aberto API token não configurado")
+            return None
+        
+        try:
+            headers = {
+                "Authorization": f"Token token={api_token}",
+                "Accept": "application/json"
+            }
+            response = requests.get(f"{GeolocalizacaoService.API_URL}/{cep_limpo}", headers=headers, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+           
+            if data and 'latitude' in data and 'longitude' in data:
+                latitude = float(data['latitude'])
+                longitude = float(data['longitude'])
+                cidade = data.get('cidade', {}).get('nome', '')
+                estado = data.get('estado', {}).get('sigla', '')
+
+                # 5. Salva no cache
+                GeolocalizacaoCache.objects.update_or_create(
+                    cep=cep_limpo,
+                    defaults={
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "cidade": cidade,
+                        "estado": estado,
+                    }
+                )
+                logger.info("Geolocalização para CEP %s: (%f, %f), %s, %s", cep_limpo, latitude, longitude, cidade, estado)
+                return {"latitude": latitude, "longitude": longitude}
+            
+        except requests.RequestException as e:
+            logger.error(f"Erro ao consultar API CEP Aberto:{cep_limpo}, {e}", exc_info=True)
+
+        return None

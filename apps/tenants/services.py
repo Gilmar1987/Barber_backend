@@ -29,7 +29,7 @@ from typing import Optional
 from uuid import UUID
 
 from django.db import DatabaseError, OperationalError
-
+from django.contrib.gis.geos import Point
 from apps.tenants.dtos import (
     BarbeariaCreateDTO,
     BarbeariaListDTO,
@@ -49,6 +49,8 @@ from common.exceptions import (
     DuplicateResourceException,
 )
 from apps.tenants.dtos import ServiceResultListWithDistanceDTO
+from apps.core.service import GeolocalizacaoService
+from apps.tenants.models import Barbearia
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +85,40 @@ class BarbeariaService:
             # 1. Validação de negócio: CNPJ único globalmente
             if self.repository.exists_by_cnpj(dto.cnpj):
                 raise DuplicateResourceException('cnpj', dto.cnpj)
-            
-            # 2. Persistência via Repository (camada de escrita)
+            # 2 Obter coordenadas
+            coords = GeolocalizacaoService.obter_ou_criar_cache(
+                cep=dto.cep,
+                latitude_manual=getattr(dto, 'latitude', None),
+                longitude_manual=getattr(dto, 'longitude', None),
+            )
+
+            # 3 Se não houver coordenadas, retorna erro
+            if not coords:
+                return ServiceResultSingleDTO(
+                    success=False,
+                    error="CEP inválido ou não encontrado",
+                    details= {"cep": dto.cep}
+                )
+
+            # 4 Criar a instancia com as cod e lat preenchidas automaticamente
+            barbearia = Barbearia.objects.create(
+                nome_comercial=dto.nome_comercial,
+                cnpj=dto.cnpj,
+                cep=dto.cep,
+                logradouro=dto.logradouro,
+                numero=dto.numero,
+                complemento=dto.complemento,
+                bairro=dto.bairro,
+                cidade=dto.cidade,
+                estado=dto.estado,
+                localizacao=Point(coords['longitude'], coords['latitude'], srid=4326),
+                telefone=dto.telefone,
+                email=dto.email,
+                ativo=True,
+                created_by_id=user_id,
+
+            )
+            # 5 Persistência via Repository (camada de escrita)
             barbearia = self.repository.create(dto, created_by=user_id)
             
             logger.info(
@@ -191,7 +225,41 @@ class BarbeariaService:
         try:
             # 1. Busca barbearia (lança exception se não existir)
             barbearia = self.repository.get_by_id_or_raise(barbearia_id)
-            
+            # 1. Validação de negócio: CNPJ único globalmente
+            if self.repository.exists_by_cnpj(dto.cnpj):
+                raise DuplicateResourceException('cnpj', dto.cnpj)
+            # 2 Obter coordenadas
+            coords = GeolocalizacaoService.obter_ou_criar_cache(
+                cep=dto.cep,
+                latitude_manual=getattr(dto, 'latitude', None),
+                longitude_manual=getattr(dto, 'longitude', None),
+            )
+
+            # 3 Se não houver coordenadas, retorna erro
+            if not coords:
+                return ServiceResultSingleDTO(
+                    success=False,
+                    error="CEP inválido ou não encontrado",
+                    details= {"cep": dto.cep}
+                )
+
+            # 4 Criar a instancia com as cod e lat preenchidas automaticamente
+            barbearia = Barbearia.objects.create(
+                nome_comercial=dto.nome_comercial,
+                cnpj=dto.cnpj,
+                cep=dto.cep,
+                logradouro=dto.logradouro,
+                numero=dto.numero,
+                complemento=dto.complemento,
+                bairro=dto.bairro,
+                cidade=dto.cidade,
+                estado=dto.estado,
+                localizacao=Point(coords['longitude'], coords['latitude'], srid=4326),
+                telefone=dto.telefone,
+                email=dto.email,
+                ativo=True,
+                updated_by_id=updated_by,
+            )
             # 2. Persistência via Repository
             updated_barbearia = self.repository.update(
                 barbearia, dto, updated_by=updated_by

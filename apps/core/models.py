@@ -152,3 +152,57 @@ class Usuario(AbstractUser):
         if self.cpf and len(self.cpf) >= 3:
             return f"***.{self.cpf[-3:]}"
         return "***"
+    
+class GeolocalizacaoCache(models.Model):
+    """
+    Cache de geolocalização para endereços.
+    Evita chamadas repetidas à API externa (CEP Aberto).
+    """
+    cep = models.CharField(
+        max_length=10, 
+        unique=True, 
+        db_index=True,
+        help_text="CEP com 8 dígitos, sem formatação"
+    )
+    latitude = models.DecimalField(
+        max_digits=9, 
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Latitude no formato decimal",
+        )
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Longitude no formato decimal",
+
+    )
+    
+    cidade = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Cidade correspondente ao CEP"
+    )
+        
+    estado = models.CharField(
+        max_length=2,
+        blank=True,
+        help_text="Sigla do estado (ex: SP)"
+    )
+    ultima_atualizacao = models.DateTimeField(
+        auto_now=True,
+        help_text="Data da última atualização deste cache"
+    )
+
+    class Meta:
+        verbose_name = "Geolocalização Cache"
+        verbose_name_plural = "Geolocalizações Cache"
+        ordering = ['-ultima_atualizacao']
+        indexes = [
+            models.Index(fields=['cep'], name='idx_geolocalizacao_cep'),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.cep} - {self.cidade}/{self.estado}"

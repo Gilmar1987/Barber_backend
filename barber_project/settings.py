@@ -27,6 +27,12 @@ BREVO_SENDER_EMAIL = os.getenv('BREVO_SENDER_EMAIL', 'noreply@barberhub.com')
 # FRONTEND URL (para links de aceitação de convites)
 # ═══════════════════════════════════════════════════════════
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+
+# ═══════════════════════════════════════════════════════════
+# CEP ABERTO (Geolocalização)
+# ═══════════════════════════════════════════════════════════
+CEP_ABERTO_API_TOKEN = os.getenv('CEP_ABERTO_API_TOKEN', '')
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',

@@ -12,6 +12,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-usuario_postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-senha_postgres}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      CEP_ABERTO_API_TOKEN: ${CEP_ABERTO_API_KEY:-}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
