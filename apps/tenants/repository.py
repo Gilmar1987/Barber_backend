@@ -34,6 +34,7 @@ Para busca global (ex: marketplace), usa-se unscoped_objects (UnscopedManager).
 from typing import List, Optional
 from uuid import UUID
 
+from django.contrib.gis.geos import Point
 from django.db import IntegrityError, transaction
 
 from apps.tenants.dtos import BarbeariaCreateDTO, BarbeariaUpdateDTO
@@ -79,15 +80,28 @@ class BarbeariaRepository:
         """Lista todas as barbearias ativas e não deletadas."""
         return list(Barbearia.objects.filter(ativo=True, is_deleted=False))
 
-    @staticmethod
-    def get_all() -> List[Barbearia]:
-        """Alias de get_all_active() para compatibilidade."""
-        return BarbeariaRepository.get_all_active()
+   # @staticmethod
+    #def get_all() -> List[Barbearia]:
+     #   """Alias de get_all_active() para compatibilidade."""
+     #   return BarbeariaRepository.get_all_active()
 
     @staticmethod
-    def create(dto: BarbeariaCreateDTO, created_by: Optional[UUID] = None) -> Barbearia:
+    def get_all_by_created_by(user_id: UUID):
+        """Retorna todas as barbearias ativas criadas por um usuário específico."""
+        return Barbearia.objects.filter(
+            created_by_id=user_id,
+            is_deleted=False
+        ).order_by('-created_at')
+
+    @staticmethod
+    def create(
+        dto: BarbeariaCreateDTO,
+        localizacao: Optional[Point] = None,
+        created_by: Optional[UUID] = None,
+    ) -> Barbearia:
         """
         Cria nova barbearia com transação atômica.
+        Recebe o Point já resolvido pelo Service (cache ou API CEP Aberto).
         Point(longitude, latitude) — ordem correta para PostGIS GEOGRAPHY.
         """
         with transaction.atomic():
@@ -102,6 +116,7 @@ class BarbeariaRepository:
                     bairro=dto.bairro,
                     cidade=dto.cidade,
                     estado=dto.estado,
+                    localizacao=localizacao,
                     telefone=dto.telefone,
                     email=dto.email,
                     created_by_id=created_by,
@@ -119,11 +134,13 @@ class BarbeariaRepository:
     def update(
         barbearia: Barbearia,
         dto: BarbeariaUpdateDTO,
-        updated_by: Optional[UUID] = None
+        localizacao: Optional[Point] = None,
+        updated_by: Optional[UUID] = None,
     ) -> Barbearia:
         """
         Atualiza barbearia existente com transação atômica.
         Usa update_fields explícito para atualizar apenas campos alterados.
+        Se localizacao for fornecida (CEP mudou), o campo GIS é atualizado também.
         """
         with transaction.atomic():
             fields_to_update = ['updated_by']
@@ -152,7 +169,9 @@ class BarbeariaRepository:
             if dto.estado is not None:
                 barbearia.estado = dto.estado
                 fields_to_update.append('estado')
-            # localizacao (GIS) removido — campo não existe no modelo atual
+            if localizacao is not None:
+                barbearia.localizacao = localizacao
+                fields_to_update.append('localizacao')
             if dto.telefone is not None:
                 barbearia.telefone = dto.telefone
                 fields_to_update.append('telefone')

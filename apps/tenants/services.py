@@ -50,7 +50,6 @@ from common.exceptions import (
 )
 from apps.tenants.dtos import ServiceResultListWithDistanceDTO
 from apps.core.service import GeolocalizacaoService
-from apps.tenants.models import Barbearia
 
 logger = logging.getLogger(__name__)
 
@@ -85,51 +84,49 @@ class BarbeariaService:
             # 1. Validação de negócio: CNPJ único globalmente
             if self.repository.exists_by_cnpj(dto.cnpj):
                 raise DuplicateResourceException('cnpj', dto.cnpj)
-            # 2 Obter coordenadas
+
+            # 2. Obter coordenadas: cache → API CEP Aberto → fallback manual
             coords = GeolocalizacaoService.obter_ou_criar_cache(
                 cep=dto.cep,
-                latitude_manual=getattr(dto, 'latitude', None),
-                longitude_manual=getattr(dto, 'longitude', None),
+                latitude_manual=dto.latitude,
+                longitude_manual=dto.longitude,
             )
 
-            # 3 Se não houver coordenadas, retorna erro
+            # 3. Se nenhuma fonte retornou coords → solicita preenchimento manual
             if not coords:
                 return ServiceResultSingleDTO(
                     success=False,
-                    error="CEP inválido ou não encontrado",
-                    details= {"cep": dto.cep}
+                    error=(
+                        "Não foi possível obter as coordenadas automaticamente para o CEP informado. "
+                        "Por favor, informe latitude e longitude manualmente."
+                    ),
+                    details={
+                        "cep": dto.cep,
+                        "requer_coordenadas_manuais": True,
+                    },
                 )
 
-            # 4 Criar a instancia com as cod e lat preenchidas automaticamente
-            barbearia = Barbearia.objects.create(
-                nome_comercial=dto.nome_comercial,
-                cnpj=dto.cnpj,
-                cep=dto.cep,
-                logradouro=dto.logradouro,
-                numero=dto.numero,
-                complemento=dto.complemento,
-                bairro=dto.bairro,
-                cidade=dto.cidade,
-                estado=dto.estado,
-                localizacao=Point(coords['longitude'], coords['latitude'], srid=4326),
-                telefone=dto.telefone,
-                email=dto.email,
-                ativo=True,
-                created_by_id=user_id,
+            # 4. Monta o ponto geográfico — Point(longitude, latitude) para PostGIS
+            localizacao = Point(coords['longitude'], coords['latitude'], srid=4326)
 
+            # 5. Persistência única via Repository (inclui o Point já resolvido)
+            barbearia = self.repository.create(
+                dto,
+                localizacao=localizacao,
+                created_by=user_id,
             )
-            # 5 Persistência via Repository (camada de escrita)
-            barbearia = self.repository.create(dto, created_by=user_id)
-            
+
             logger.info(
-                f"Barbearia criada: {barbearia.id} | "
-                f"CNPJ: {barbearia.get_cnpj_masked()}"
+                "Barbearia criada: %s | CNPJ: %s | coords: (%.6f, %.6f)",
+                barbearia.id,
+                barbearia.get_cnpj_masked(),
+                coords['latitude'],
+                coords['longitude'],
             )
-            
+
             response_dto = self._to_response_dto(barbearia)
-            
             result = ServiceResultSingleDTO(success=True, data=response_dto)
-            
+
             try:
                 dispatch_event(
                     event_type=EventType.TENANT_CREATED,
@@ -141,37 +138,37 @@ class BarbeariaService:
                         'nome_comercial': barbearia.nome_comercial,
                         'cidade': barbearia.cidade,
                         'estado': barbearia.estado,
-                    }
+                    },
                 )
             except Exception:
                 logging.exception('Falha ao disparar evento TENANT_CREATED')
-            
+
             return result
-        
+
         except DuplicateResourceException as e:
-            logger.warning(f"CNPJ duplicado: {e.details}")
+            logger.warning("CNPJ duplicado: %s", e.details)
             return ServiceResultSingleDTO(
                 success=False,
                 error=e.message,
-                details=e.details
+                details=e.details,
             )
         except DomainException as e:
             return ServiceResultSingleDTO(
                 success=False,
                 error=e.message,
-                details=e.details
+                details=e.details,
             )
         except (DatabaseError, OperationalError):
             logging.exception('Erro de banco ao criar barbearia')
             return ServiceResultSingleDTO(
                 success=False,
-                error="Erro interno ao criar barbearia"
+                error="Erro interno ao criar barbearia",
             )
         except Exception:
             logging.exception('Erro inesperado ao criar barbearia')
             return ServiceResultSingleDTO(
                 success=False,
-                error="Erro interno ao criar barbearia"
+                error="Erro interno ao criar barbearia",
             )
     
     # ═══════════════════════════════════════════════════════════
@@ -225,52 +222,42 @@ class BarbeariaService:
         try:
             # 1. Busca barbearia (lança exception se não existir)
             barbearia = self.repository.get_by_id_or_raise(barbearia_id)
-            # 1. Validação de negócio: CNPJ único globalmente
-            if self.repository.exists_by_cnpj(dto.cnpj):
-                raise DuplicateResourceException('cnpj', dto.cnpj)
-            # 2 Obter coordenadas
-            coords = GeolocalizacaoService.obter_ou_criar_cache(
-                cep=dto.cep,
-                latitude_manual=getattr(dto, 'latitude', None),
-                longitude_manual=getattr(dto, 'longitude', None),
-            )
 
-            # 3 Se não houver coordenadas, retorna erro
-            if not coords:
-                return ServiceResultSingleDTO(
-                    success=False,
-                    error="CEP inválido ou não encontrado",
-                    details= {"cep": dto.cep}
+            # 2. Recalcular coordenadas somente se CEP foi alterado
+            localizacao = None
+            if dto.cep is not None:
+                coords = GeolocalizacaoService.obter_ou_criar_cache(
+                    cep=dto.cep,
+                    latitude_manual=dto.latitude,
+                    longitude_manual=dto.longitude,
                 )
+                if not coords:
+                    return ServiceResultSingleDTO(
+                        success=False,
+                        error=(
+                            "Não foi possível obter as coordenadas para o novo CEP. "
+                            "Por favor, informe latitude e longitude manualmente."
+                        ),
+                        details={
+                            "cep": dto.cep,
+                            "requer_coordenadas_manuais": True,
+                        },
+                    )
+                localizacao = Point(coords['longitude'], coords['latitude'], srid=4326)
 
-            # 4 Criar a instancia com as cod e lat preenchidas automaticamente
-            barbearia = Barbearia.objects.create(
-                nome_comercial=dto.nome_comercial,
-                cnpj=dto.cnpj,
-                cep=dto.cep,
-                logradouro=dto.logradouro,
-                numero=dto.numero,
-                complemento=dto.complemento,
-                bairro=dto.bairro,
-                cidade=dto.cidade,
-                estado=dto.estado,
-                localizacao=Point(coords['longitude'], coords['latitude'], srid=4326),
-                telefone=dto.telefone,
-                email=dto.email,
-                ativo=True,
-                updated_by_id=updated_by,
-            )
-            # 2. Persistência via Repository
+            # 3. Persistência via Repository (atualização parcial com update_fields)
             updated_barbearia = self.repository.update(
-                barbearia, dto, updated_by=updated_by
+                barbearia,
+                dto,
+                localizacao=localizacao,
+                updated_by=updated_by,
             )
-            
-            logger.info(f"Barbearia atualizada: {updated_barbearia.id}")
-            
+
+            logger.info("Barbearia atualizada: %s", updated_barbearia.id)
+
             response_dto = self._to_response_dto(updated_barbearia)
-            
             result = ServiceResultSingleDTO(success=True, data=response_dto)
-            
+
             try:
                 dispatch_event(
                     event_type=EventType.TENANT_UPDATED,
@@ -281,47 +268,56 @@ class BarbeariaService:
                         'fields_updated': [
                             field for field, value in dto.model_dump().items()
                             if value is not None
-                        ]
-                    }
+                        ],
+                    },
                 )
             except Exception:
                 logging.exception('Falha ao disparar evento TENANT_UPDATED')
-            
+
             return result
-        
+
         except BarbeariaNotFoundException as e:
             return ServiceResultSingleDTO(
                 success=False,
                 error=e.message,
-                details=e.details
+                details=e.details,
             )
         except DomainException as e:
             return ServiceResultSingleDTO(
                 success=False,
                 error=e.message,
-                details=e.details
+                details=e.details,
             )
         except (DatabaseError, OperationalError):
             logging.exception('Erro de banco ao atualizar barbearia')
             return ServiceResultSingleDTO(
                 success=False,
-                error="Erro interno ao atualizar barbearia"
+                error="Erro interno ao atualizar barbearia",
             )
         except Exception:
             logging.exception('Erro inesperado ao atualizar barbearia')
             return ServiceResultSingleDTO(
                 success=False,
-                error="Erro interno ao atualizar barbearia"
+                error="Erro interno ao atualizar barbearia",
             )
     
     # ═══════════════════════════════════════════════════════════
     # LISTAR BARBEARIAS
     # ═══════════════════════════════════════════════════════════
     
-    def listar_barbearias(self) -> ServiceResultListDTO:
-        """Lista todas as barbearias ativas."""
+    def listar_barbearias(self, user_id: Optional[UUID] = None) -> ServiceResultListDTO:
+        """
+        Lista barbearias. 
+        Se user_id for fornecido, lista apenas as criadas por ele.
+        Caso contrário, lista todas as ativas (modo marketplace).
+        """
         try:
-            barbearias = self.repository.get_all_active()
+            if user_id:
+                # DONO quer ver TODAS as barbearias que ele criou
+                barbearias = self.repository.get_all_by_created_by(user_id)
+            else:
+                # Cliente final quer ver TODAS as barbearias ativas do sistema
+                barbearias = self.repository.get_all_active()
             
             response_dtos = [
                 self._to_list_dto(barbearia)
@@ -492,8 +488,9 @@ class BarbeariaService:
             bairro=barbearia.bairro,
             cidade=barbearia.cidade,
             estado=barbearia.estado,
-            latitude=None,   # campo GIS removido do modelo
-            longitude=None,  # campo GIS removido do modelo
+            # Extrai lat/lng reais do campo PostGIS (y=latitude, x=longitude)
+            latitude=barbearia.localizacao.y if barbearia.localizacao else None,
+            longitude=barbearia.localizacao.x if barbearia.localizacao else None,
             telefone=barbearia.telefone,
             email=barbearia.email,
             ativo=barbearia.ativo,

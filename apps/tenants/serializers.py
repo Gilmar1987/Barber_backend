@@ -34,8 +34,10 @@ class BarbeariaCreateSerializer(serializers.Serializer):
     bairro = serializers.CharField(max_length=100, min_length=2)
     cidade = serializers.CharField(max_length=100, min_length=2)
     estado = serializers.CharField(max_length=2)
-    latitude = serializers.FloatField(min_value=-90, max_value=90)
-    longitude = serializers.FloatField(min_value=-180, max_value=180)
+    # Opcionais: preenchidos via cache/API CEP Aberto.
+    # Só obrigatórios quando cache e API falham (fallback manual).
+    latitude = serializers.FloatField(min_value=-90, max_value=90, required=False, allow_null=True)
+    longitude = serializers.FloatField(min_value=-180, max_value=180, required=False, allow_null=True)
     telefone = serializers.CharField(max_length=15, required=False, allow_blank=True, allow_null=True)
     email = serializers.EmailField(required=False, allow_blank=True, allow_null=True)
     
@@ -82,11 +84,25 @@ class BarbeariaCreateSerializer(serializers.Serializer):
         if len(v_upper) != 2 or not v_upper.isalpha():
             raise serializers.ValidationError("Estado deve ser uma UF válida (ex: SP, RJ, MG).")
         return v_upper
+
+    def validate(self, data: dict) -> dict:
+        """
+        Validação cruzada: se lat ou lng for informado, ambos devem ser fornecidos.
+        Lat/lng são opcionais (preenchidos via CEP Aberto); mas se um for passado,
+        o par completo é necessário para consistência.
+        """
+        latitude = data.get('latitude')
+        longitude = data.get('longitude')
+        if (latitude is None) != (longitude is None):
+            raise serializers.ValidationError(
+                "latitude e longitude devem ser informados juntos ou omitidos juntos."
+            )
+        return data
     
     def to_dto(self):
         """Converte dados validados para Pydantic DTO."""
         from apps.tenants.dtos import BarbeariaCreateDTO
-        
+
         return BarbeariaCreateDTO(
             nome_comercial=self.validated_data['nome_comercial'],
             cnpj=self.validated_data['cnpj'],
@@ -97,8 +113,8 @@ class BarbeariaCreateSerializer(serializers.Serializer):
             bairro=self.validated_data['bairro'],
             cidade=self.validated_data['cidade'],
             estado=self.validated_data['estado'],
-            latitude=self.validated_data['latitude'],
-            longitude=self.validated_data['longitude'],
+            latitude=self.validated_data.get('latitude'),    # None se não informado
+            longitude=self.validated_data.get('longitude'),  # None se não informado
             telefone=self.validated_data.get('telefone'),
             email=self.validated_data.get('email'),
         )

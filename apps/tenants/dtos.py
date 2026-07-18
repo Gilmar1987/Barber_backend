@@ -46,8 +46,10 @@ class BarbeariaCreateDTO(BaseModel):
     bairro: str = Field(..., min_length=1, max_length=100)
     cidade: str = Field(..., min_length=1, max_length=100)
     estado: str = Field(..., min_length=2, max_length=2)
-    latitude: float = Field(..., ge=-90, le=90)
-    longitude: float = Field(..., ge=-180, le=180)
+    # Opcionais: preenchidos automaticamente via CEP Aberto.
+    # Enviados apenas como fallback quando cache e API falham.
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
     telefone: Optional[str] = Field(None, max_length=15)
     email: EmailStr  # obrigatório — model: null=False, blank=False
 

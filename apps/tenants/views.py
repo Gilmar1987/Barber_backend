@@ -233,28 +233,18 @@ class BarbeariaListView(APIView):
         """Lista barbearias conforme perfil do usuário."""
         tipo_usuario = getattr(request.user, 'tipo_usuario', None)
 
-        # DONO e BARBEIRO: apenas a própria barbearia (isolamento multi-tenant)
+        # DONO e BARBEIRO: listam TODAS as barbearias que eles criam/possuem vínculo
         if tipo_usuario in ('DONO', 'BARBEIRO'):
-            tenant_id = getattr(request.user, 'tenant_id', None)
-            if not tenant_id:
-                return Response(
-                    {'success': False, 'error': 'Usuário sem vínculo com barbearia.'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-            result = self.service.obter_barbearia(tenant_id)
-            # Retorna lista com um único item para manter contrato da resposta
-            if result.success:
-                return Response(
-                    {'success': True, 'data': [result.data.model_dump()], 'error': None, 'details': None},
-                    status=status.HTTP_200_OK
-                )
-            return Response(result.model_dump(), status=status.HTTP_404_NOT_FOUND)
+            user_id = request.user.id if request.user.is_authenticated else None
+            
+            # O service agora filtra por created_by=user_id
+            result = self.service.listar_barbearias(user_id=user_id)
+            return Response(result.model_dump(), status=status.HTTP_200_OK)
 
         # CLIENTE_FINAL ou não autenticado: marketplace global (todas as ativas)
-        result = self.service.listar_barbearias()
+        result = self.service.listar_barbearias(user_id=None)
         return Response(result.model_dump(), status=status.HTTP_200_OK)
-
-
+    
 class BarbeariaProximidadeView(APIView):
     """
     GET /api/v1/tenants/barbearias/proximidade/
