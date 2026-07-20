@@ -27,6 +27,7 @@ Handlers assíncronos gerenciados por Celery + Redis escutam esse evento."
 import logging
 from typing import Optional
 from uuid import UUID
+from common.utils import mask_cnpj, mask_cpf
 
 from django.db import DatabaseError, OperationalError
 from django.contrib.gis.geos import Point
@@ -345,54 +346,52 @@ class BarbeariaService:
     # ═══════════════════════════════════════════════════════════
     # BUSCAR POR PROXIMIDADE
     # ═══════════════════════════════════════════════════════════
-    
+   
+    # apps/tenants/services.py
+
     def buscar_por_proximidade(
         self,
         search_dto: ProximidadeSearchDTO
-    ) -> ServiceResultListDTO:
-        """
-        Busca barbearias por proximidade geográfica.
-        
-        📖 MANIFESTO: "Usar GEOGRAPHY(Point, 4326) para cálculos em metros reais"
-        Retorna barbearias dentro do raio especificado, ordenadas por distância.
-        """
+    ) -> ServiceResultListWithDistanceDTO:
         try:
-            barbearias = self.repository.buscar_por_proximidade(
+            # Retorna lista de dicionários (devido ao .values() no Repository)
+            barbearias_data = self.repository.buscar_por_proximidade(
                 latitude=search_dto.latitude,
                 longitude=search_dto.longitude,
                 raio_km=search_dto.raio_km
             )
             
             response_dtos = []
-            for barbearia in barbearias:
-                distancia_metros = None
-                if hasattr(barbearia, 'distancia') and barbearia.distancia is not None:
-                    try:
-                        #Tentar .m primeiro (Django GIS padrão)
-                        if hasattr(barbearia.distancia, 'm'):
-                            distancia_metros = float(barbearia.distancia.m)
-                        else:
-                            distancia_metros = float(barbearia.distancia)
-                    except(AttributeError, ValueError, TypeError):
-                        distancia_metros = None
-
+            for b in barbearias_data:
+                # Extrair distância do dicionário
+                distancia_obj = b.get('distancia_metros')
+                distancia_em_metros = float(distancia_obj.m) if distancia_obj and hasattr(distancia_obj, 'm') else (float(distancia_obj) if distancia_obj else None)
+                
+                # Regra LGPD: Mascarar CNPJ manualmente (pois 'b' é um dict, não um Model)
+                cnpj = str(b.get('cnpj', ''))
+                cnpj_masked = f"{cnpj[:2]}.***.***{cnpj[-1]}" if len(cnpj) >= 2 else "**.***.***"
+                
                 response_dtos.append(
-                    self._to_list_with_distance_dto(barbearia, distancia_metros)
+                    BarbeariaListWithDistanceDTO(
+                        id=b['id'],
+                        nome_comercial=b['nome_comercial'],
+                        #cnpj_masked=cnpj_masked,
+                        cnpj_masked=mask_cnpj(cnpj),
+                        cidade=b['cidade'],
+                        estado=b['estado'],
+                        telefone=b['telefone'],
+                        ativo=b['ativo'],
+                        is_deleted=b['is_deleted'],
+                        distancia_metros=distancia_em_metros
+                    )
                 )
-
-                    
             
-            logger.info(
-                f"Busca por proximidade: {len(response_dtos)} barbearias "
-                f"encontradas em raio de {search_dto.raio_km}km"
-            )
+            logger.info(f"Busca por proximidade: {len(response_dtos)} barbearias encontradas.")
             
-            #return ServiceResultListDTO
             return ServiceResultListWithDistanceDTO(
                 success=True,
                 data=response_dtos
             )
-        
         except (DatabaseError, OperationalError):
             logging.exception('Erro de banco ao buscar barbearias por proximidade')
             return ServiceResultListWithDistanceDTO(
@@ -405,7 +404,6 @@ class BarbeariaService:
                 success=False,
                 error="Erro interno ao buscar barbearias por proximidade"
             )
-    
     # ═══════════════════════════════════════════════════════════
     # SOFT DELETE
     # ═══════════════════════════════════════════════════════════

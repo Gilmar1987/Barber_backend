@@ -19,7 +19,7 @@
 """
 import logging
 from uuid import UUID
-
+from rest_framework.pagination import PageNumberPagination
 from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiParameter, OpenApiTypes
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
@@ -245,12 +245,13 @@ class BarbeariaListView(APIView):
         result = self.service.listar_barbearias(user_id=None)
         return Response(result.model_dump(), status=status.HTTP_200_OK)
     
+# apps/tenants/views.py
+
+# apps/tenants/views.py
+
+
 class BarbeariaProximidadeView(APIView):
-    """
-    GET /api/v1/tenants/barbearias/proximidade/
-    Busca barbearias por proximidade geográfica.
-    """
-    permission_classes = [AllowAny]  # Público para busca
+    permission_classes = [AllowAny]
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -258,35 +259,15 @@ class BarbeariaProximidadeView(APIView):
     
     @extend_schema(
         parameters=[
-            OpenApiParameter(
-                name='latitude',
-                type=OpenApiTypes.FLOAT,
-                location=OpenApiParameter.QUERY,
-                required=True,
-                description='Latitude do ponto de referência (-90 a 90)'
-            ),
-            OpenApiParameter(
-                name='longitude',
-                type=OpenApiTypes.FLOAT,
-                location=OpenApiParameter.QUERY,
-                required=True,
-                description='Longitude do ponto de referência (-180 a 180)'
-            ),
-            OpenApiParameter(
-                name='raio_km',
-                type=OpenApiTypes.FLOAT,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description='Raio de busca em quilômetros (padrão: 5 km)',
-                default=5
-            ),
+            OpenApiParameter(name='latitude', type=OpenApiTypes.FLOAT, location=OpenApiParameter.QUERY, required=True),
+            OpenApiParameter(name='longitude', type=OpenApiTypes.FLOAT, location=OpenApiParameter.QUERY, required=True),
+            OpenApiParameter(name='raio_km', type=OpenApiTypes.FLOAT, location=OpenApiParameter.QUERY, required=False, default=5),
         ],
         responses={200: BarbeariaListWithDistanceSerializer(many=True)},
         description='Busca barbearias por proximidade geográfica (raio em km).',
         tags=['Barbearias'],
     )
     def get(self, request: Request) -> Response:
-        """Busca barbearias por proximidade."""
         serializer = ProximidadeSearchSerializer(data=request.query_params)
         if not serializer.is_valid():
             return Response(
@@ -294,10 +275,41 @@ class BarbeariaProximidadeView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Converte para Pydantic DTO
         search_dto = serializer.to_dto()
-        
-        # Delega para o Service
         result = self.service.buscar_por_proximidade(search_dto)
         
-        return Response(result.model_dump(), status=status.HTTP_200_OK)
+        # ✅ CORREÇÃO CRÍTICA: result é um objeto Pydantic, use .success, não ['success']
+        if not result.success:
+            return Response(result.model_dump(), status=status.HTTP_400_BAD_REQUEST)
+
+        # ✅ Regra 10: Paginação Obrigatória
+        paginator = PageNumberPagination()
+        paginator.page_size = 20
+        paginator.page_size_query_param = 'page_size'
+        paginator.max_page_size = 100
+        
+        # Converter DTOs Pydantic para dicionários para o paginator do DRF
+        data_dicts = [item.model_dump() for item in result.data]
+        page = paginator.paginate_queryset(data_dicts, request)
+        
+        if page is not None:
+            return Response({
+                'success': True,
+                'data': page,
+                'error': None,
+                'details': {
+                    'count': paginator.page.paginator.count,
+                    'next': paginator.get_next_link(),
+                    'previous': paginator.get_previous_link(),
+                    'page': paginator.page.number,
+                    'page_size': paginator.page_size
+                }
+            }, status=status.HTTP_200_OK)
+        
+        # Fallback sem paginação (caso o paginator retorne None)
+        return Response({
+            'success': True,
+            'data': data_dicts,
+            'error': None,
+            'details': None
+        }, status=status.HTTP_200_OK)

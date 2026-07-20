@@ -35,6 +35,8 @@ from typing import List, Optional
 from uuid import UUID
 
 from django.contrib.gis.geos import Point
+from django.contrib.gis.db.models.functions import Distance as DistanceFunction
+from django.contrib.gis.measure import Distance as DistanceMeasure
 from django.db import IntegrityError, transaction
 
 from apps.tenants.dtos import BarbeariaCreateDTO, BarbeariaUpdateDTO
@@ -205,23 +207,26 @@ class BarbeariaRepository:
             queryset = queryset.exclude(id=exclude_id)
         return queryset.exists()
 
+   # apps/tenants/repository.py
+
     @staticmethod
     def buscar_por_proximidade(
         latitude: float,
         longitude: float,
-        raio_km: float = 10.0
-    ) -> List[Barbearia]:
-        """
-        Busca barbearias ativas.
-
-        ⚠️ NOTA: campo GIS 'localizacao' foi removido do modelo.
-        Retorna todas as barbearias ativas sem filtro de proximidade.
-        Para reativar busca geoespacial, reintegre django.contrib.gis e
-        adicione o campo PointField ao modelo Barbearia.
-        """
-        return list(
-            Barbearia.objects.filter(
-                ativo=True,
-                is_deleted=False,
-            )
+        raio_km: float = 5,
+    ):
+        ponto_referencia = Point(longitude, latitude, srid=4326)
+        raio = DistanceMeasure(km=raio_km)
+        
+        return Barbearia.objects.filter(
+            is_deleted=False,
+            ativo=True,
+            localizacao__isnull=False,
+            localizacao__dwithin=(ponto_referencia, raio),
+        ).annotate(
+            distancia_metros=DistanceFunction('localizacao', ponto_referencia),
+        ).order_by('distancia_metros').values(
+            # Regra 3: Apenas os campos estritamente necessários para o DTO
+            'id', 'nome_comercial', 'cnpj', 'cidade', 'estado', 
+            'telefone', 'ativo', 'is_deleted', 'distancia_metros'
         )
