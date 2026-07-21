@@ -15,6 +15,7 @@ from apps.core.views import (
     UsuarioDetailView,
     UsuarioListView,
     UsuarioMeView,
+    SelecionarTenantView,
 )
 
 app_name = 'core'
@@ -39,5 +40,10 @@ urlpatterns = [
         'usuarios/<uuid:user_id>/',
         UsuarioDetailView.as_view(),
         name='usuario-detail'
+    ),
+    path(
+        'auth/selecionar-tenant/',
+        SelecionarTenantView.as_view(),
+        name='selecionar-tenant'
     ),
 ]

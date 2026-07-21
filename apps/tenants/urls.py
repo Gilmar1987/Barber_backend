@@ -15,6 +15,7 @@ from apps.tenants.views import (
     BarbeariaDetailView,
     BarbeariaListView,
     BarbeariaProximidadeView,
+    BarbeariaContextoListView,
 )
 
 app_name = 'tenants'
@@ -31,5 +32,8 @@ urlpatterns = [
     
     # GET/PUT/DELETE /api/v1/tenants/barbearias/{barbearia_id}/
     path('barbearias/<uuid:barbearia_id>/', BarbeariaDetailView.as_view(), name='barbearia-detail'),
+    
+    # GET /api/v1/tenants/barbearias/meu-contexto/
+    path('barbearias/meu-contexto/', BarbeariaContextoListView.as_view(), name='barbearia-meu-contexto'),
 ]
 

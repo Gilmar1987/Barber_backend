@@ -87,7 +87,11 @@ def _get_barbearia_id_from_jwt(request: Request) -> UUID:
     Extrai o tenant_id do JWT do usuário autenticado (barbearia vinculada).
     Lança exceção se o usuário não tiver vínculo com barbearia.
     """
-    barbearia_id = getattr(request.user, 'tenant_id', None)
+    barbearia_id = getattr(request, 'barbearia_id', None)
+
+    if not barbearia_id:
+        barbearia_id = getattr(request.user, 'tenant_id', None)
+
     if not barbearia_id:
         raise ValueError(
             "Usuário não possui vínculo com barbearia. "
@@ -99,7 +103,11 @@ def _get_barbearia_id_from_jwt_or_none(request: Request) -> UUID:
     """
     Extrai o tenant_id do JWT do usuário autenticado, retorna None se não tiver.
     """
-    barbearia_id = getattr(request.user, 'tenant_id', None)
+    barbearia_id = getattr(request, 'barbearia_id', None)
+
+    if not barbearia_id:
+        barbearia_id = getattr(request.user, 'tenant_id', None)
+
     if not barbearia_id:
         logger.warning("Usuário não possui vínculo com barbearia.")
         return None
@@ -274,7 +282,13 @@ class ServicoCreateView(APIView):
         
         # Extrai barbearia_id do JWT
         try:
-            barbearia_id = _get_barbearia_id_from_jwt(request)
+            barbearia_id = getattr(request, 'barbearia_id', None) or _get_barbearia_id_from_jwt(request)
+            if not barbearia_id:
+                return Response(
+                    {'success': False, 'error': 'Barbearia ID não encontrado'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
         except ValueError as e:
             return Response(
                 {'success': False, 'error': str(e)},

@@ -108,7 +108,7 @@ class ServicoService:
             # 1. Validação de negócio: nome único na barbearia
             # CORREÇÃO: usar exists_by_nome_na_barbearia
             if self.repository.exists_by_nome_na_barbearia(dto.nome, barbearia_id):
-                raise DuplicateResourceException('nome', dto.nome)
+                raise DuplicateResourceException(f"Servico com nome {dto.nome} já existe na barbearia {barbearia_id}")
             
             # 2. Persistência via Repository
             servico = self.repository.create(dto, barbearia_id)

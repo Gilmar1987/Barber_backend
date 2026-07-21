@@ -11,8 +11,8 @@
 """
 import logging
 from uuid import UUID
-
-from drf_spectacular.utils import extend_schema, OpenApiResponse
+from rest_framework_simplejwt.tokens import RefreshToken
+from drf_spectacular.utils import extend_schema, OpenApiResponse, extend_schema_view
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
@@ -25,6 +25,7 @@ from apps.core.serializers import (
     UsuarioUpdateSerializer,
 )
 from apps.core.service import UsuarioService
+from apps.core.models import VinculoUsuarioBarbearia, Usuario
 
 logger = logging.getLogger(__name__)
 
@@ -159,3 +160,84 @@ class UsuarioMeView(APIView):
         if result.success:
             return Response(result.model_dump(), status=status.HTTP_200_OK)
         return Response(result.model_dump(), status=status.HTTP_404_NOT_FOUND)
+    
+
+
+
+
+class SelecionarTenantView(APIView):
+    """
+    POST /api/v1/auth/selecionar-tenant/
+    Permite que um usuário com múltiplos vínculos selecione o contexto (tenant) ativo.
+    Gera um novo par de tokens JWT com o tenant_id e papel atualizados.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'barbearia_id': {'type': 'string', 'format': 'uuid'}
+                },
+                'required': ['barbearia_id']
+            }
+        },
+        responses={
+            200: OpenApiResponse(description='Novo token gerado com sucesso'),
+            403: OpenApiResponse(description='Acesso negado à barbearia selecionada'),
+            400: OpenApiResponse(description='Requisição inválida')
+        },
+        tags=['Autenticação']
+    )
+    def post(self, request):
+        barbearia_id = request.data.get('barbearia_id')
+        if not barbearia_id:
+            return Response(
+                {'success': False, 'error': 'barbearia_id é obrigatório.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = request.user
+
+        # 1. Validação Crítica: O usuário tem vínculo ativo com esta barbearia?
+        try:
+            vinculo = VinculoUsuarioBarbearia.objects.select_related('barbearia').get(
+                usuario=user,
+                barbearia_id=barbearia_id,
+                barbearia__is_deleted=False
+            )
+        except VinculoUsuarioBarbearia.DoesNotExist:
+            return Response(
+                {'success': False, 'error': 'Acesso negado. Você não tem vínculo com esta barbearia.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 2. Atualiza o objeto user em memória para que o token reflita o novo contexto
+        user.tenant_id = vinculo.barbearia_id
+        user.tipo_usuario = vinculo.papel
+        
+        # Opcional (Recomendado): Salvar como padrão para o próximo login
+        Usuario.objects.filter(id=user.id).update(
+            tenant_id=user.tenant_id, 
+            tipo_usuario=user.tipo_usuario
+        )
+
+        # 3. Gerar novos tokens JWT com os claims atualizados
+        refresh = RefreshToken.for_user(user)
+        
+        # Forçar os claims no payload (garantia extra)
+        refresh['tenant_id'] = str(user.tenant_id)
+        refresh['tipo_usuario'] = user.tipo_usuario
+
+        return Response({
+            'success': True,
+            'data': {
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+                'tenant_id': str(user.tenant_id),
+                'tipo_usuario': user.tipo_usuario,
+                'nome_barbearia': vinculo.barbearia.nome_comercial
+            },
+            'error': None
+        }, status=status.HTTP_200_OK)

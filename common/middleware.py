@@ -28,7 +28,7 @@ from typing import Optional
 from uuid import UUID
 
 from django.db import DatabaseError, OperationalError, connection
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils.deprecation import MiddlewareMixin
 
 from common.context import (
@@ -38,14 +38,26 @@ from common.context import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class TenantContextMiddleware(MiddlewareMixin):
     """
-    Middleware que captura o tenant_id do JWT e o injeta no contexto.
-    Também configura o RLS no PostgreSQL para defesa em profundidade.
+    Middleware que captura o tenant_id do JWT ou do header X-Barbearia-Id
+    e o injeta no contexto. Também configura o RLS no PostgreSQL.
+    
+    📖 MANIFESTO: "Um middleware captura o identificador do tenant"
+    
+    ✅ Regras seguidas:
+    - Prioridade: Header X-Barbearia-Id > JWT tenant_id
+    - Valida se o usuário tem acesso à barbearia selecionada
+    - Injeta no ContextVar (thread-safe)
+    - Configura RLS no PostgreSQL (defesa em profundidade)
+    - Limpa contexto após requisição
     """
     
     def process_request(self, request: HttpRequest) -> Optional[HttpResponse]:
-        """Extrai tenant_id e user_id do request e os injeta no contexto."""
+        """Extrai tenant_id do header ou JWT e o injeta no contexto."""
         # Limpa contexto anterior (evita vazamento entre requisições)
         clear_context()
         
@@ -53,16 +65,61 @@ class TenantContextMiddleware(MiddlewareMixin):
         if not hasattr(request, 'user') or not request.user.is_authenticated:
             return None
         
-        # Extrai tenant_id do usuário (vem do JWT via SimpleJWT)
-        tenant_id: Optional[UUID] = getattr(request.user, 'tenant_id', None)
-        user_id: Optional[UUID] = getattr(request.user, 'id', None)
+        tipo_usuario = getattr(request.user, 'tipo_usuario', None)
+        
+        # CLIENTE_FINAL não precisa de contexto de tenant
+        if tipo_usuario == 'CLIENTE_FINAL':
+            return None
+        
+        # ═══════════════════════════════════════════════════════════
+        # PRIORIDADE 1: Header X-Barbearia-Id (seletor de barbearia)
+        # ═══════════════════════════════════════════════════════════
+        barbearia_id_header = request.META.get('HTTP_X_BARBEARIA_ID')
+        tenant_id: Optional[UUID] = None
+        
+        if barbearia_id_header:
+            try:
+                tenant_id = UUID(barbearia_id_header)
+            except (ValueError, TypeError):
+                return JsonResponse(
+                    {
+                        'success': False,
+                        'error': 'Header X-Barbearia-Id inválido. Deve ser um UUID.'
+                    },
+                    status=400
+                )
+            
+            # Validação de Segurança: O usuário tem acesso a esta barbearia?
+            if not self._usuario_tem_acesso(request.user, tenant_id):
+                return JsonResponse(
+                    {
+                        'success': False,
+                        'error': 'Acesso negado. Você não tem vínculo com esta barbearia.',
+                        'details': {'barbearia_id': str(tenant_id)}
+                    },
+                    status=403
+                )
+        
+        # ═══════════════════════════════════════════════════════════
+        # PRIORIDADE 2: tenant_id do JWT (fallback)
+        # ═══════════════════════════════════════════════════════════
+        if not tenant_id:
+            tenant_id = getattr(request.user, 'tenant_id', None)
+        
+        # ═══════════════════════════════════════════════════════════
+        # INJEÇÃO NO CONTEXTO (mantém compatibilidade com código existente)
+        # ═══════════════════════════════════════════════════════════
+        user_id = getattr(request.user, 'id', None)
         
         # Injeta no ContextVar (thread-safe)
         if tenant_id:
+            request.barbearia_id = tenant_id
             set_current_tenant_id(tenant_id)
+            logger.info(f"Middleware: tenant_id {tenant_id} (Header:{barbearia_id_header is not None})")
         
         if user_id:
             set_current_user_id(user_id)
+            request.user_id = user_id  # Para compatibilidade com views
         
         # Defesa em profundidade: configura RLS no PostgreSQL
         if tenant_id:
@@ -73,7 +130,7 @@ class TenantContextMiddleware(MiddlewareMixin):
                         [str(tenant_id)]
                     )
             except (OperationalError, DatabaseError):
-                logging.exception(
+                logger.exception(
                     'Falha crítica ao setar contexto de tenant no PostgreSQL'
                 )
                 raise
@@ -88,6 +145,33 @@ class TenantContextMiddleware(MiddlewareMixin):
         """Limpa o contexto após a requisição."""
         clear_context()
         return response
+    
+    def _usuario_tem_acesso(self, user, barbearia_id: UUID) -> bool:
+        """
+        Verifica se o usuário tem acesso à barbearia especificada.
+        - DONO: criou a barbearia
+        - BARBEIRO: tem vínculo ativo como Profissional
+        """
+        from apps.tenants.models import Barbearia
+        from apps.operacional.models import Profissional
+        
+        tipo_usuario = getattr(user, 'tipo_usuario', None)
+        
+        if tipo_usuario == 'DONO':
+            return Barbearia.objects.filter(
+                id=barbearia_id,
+                created_by=user,
+                is_deleted=False
+            ).exists()
+        
+        if tipo_usuario == 'BARBEIRO':
+            return Profissional.objects.filter(
+                usuario=user,
+                barbearia_id=barbearia_id,
+                ativo=True
+            ).exists()
+        
+        return False
 
 
 class TenantEnforcementMiddleware(MiddlewareMixin):

@@ -36,6 +36,7 @@ from apps.tenants.serializers import (
     ProximidadeSearchSerializer,
 )
 from apps.tenants.services import BarbeariaService
+from apps.core.models import VinculoUsuarioBarbearia
 
 logger = logging.getLogger(__name__)
 
@@ -312,4 +313,51 @@ class BarbeariaProximidadeView(APIView):
             'data': data_dicts,
             'error': None,
             'details': None
+        }, status=status.HTTP_200_OK)
+    
+
+
+
+class BarbeariaContextoListView(APIView):
+    """
+    GET /api/v1/tenants/barbearias/meu-contexto/
+    Lista todas as barbearias e papéis aos quais o usuário autenticado tem vínculo.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: OpenApiResponse(description='Lista de contextos disponíveis')},
+        tags=['Barbearias']
+    )
+    def get(self, request):
+        user = request.user
+        
+        # Regra 3 e 4 do Guia: values() + select_related para performance máxima
+        vinculos = VinculoUsuarioBarbearia.objects.filter(
+            usuario=user,
+            barbearia__is_deleted=False
+        ).select_related('barbearia').values(
+            'barbearia_id',
+            'barbearia__nome_comercial',
+            'barbearia__cidade',
+            'barbearia__estado',
+            'papel'
+        )
+
+        data = [
+            {
+                'barbearia_id': str(v['barbearia_id']),
+                'nome_comercial': v['barbearia__nome_comercial'],
+                'cidade': v['barbearia__cidade'],
+                'estado': v['barbearia__estado'],
+                'papel': v['papel']
+            }
+            for v in vinculos
+        ]
+
+        return Response({
+            'success': True,
+            'data': data,
+            'error': None,
+            'details': {'total': len(data)}
         }, status=status.HTTP_200_OK)

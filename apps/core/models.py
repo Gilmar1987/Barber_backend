@@ -30,6 +30,7 @@ from typing import Optional
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.conf import settings
 
 
 def validate_cpf(value: str) -> None:
@@ -206,3 +207,46 @@ class GeolocalizacaoCache(models.Model):
 
     def __str__(self) -> str:
         return f"{self.cep} - {self.cidade}/{self.estado}"
+    
+
+
+
+class PapelChoices(models.TextChoices):
+    DONO = 'DONO', 'Dono'
+    BARBEIRO = 'BARBEIRO', 'Barbeiro'
+    GERENTE = 'GERENTE', 'Gerente'
+
+class VinculoUsuarioBarbearia(models.Model):
+    """
+    Tabela de Associação: Conecta um Usuário a uma Barbearia com um papel específico.
+    Fonte da verdade para "quem pode acessar o quê".
+    """
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE, 
+        related_name='vinculos_barbearia'
+    )
+    # Ajuste 'tenants.Barbearia' se o nome do seu app for diferente
+    barbearia = models.ForeignKey(
+        'tenants.Barbearia', 
+        on_delete=models.CASCADE, 
+        related_name='vinculos_usuario'
+    )
+    papel = models.CharField(
+        max_length=50, 
+        choices=PapelChoices.choices, 
+        default=PapelChoices.DONO
+    )
+    data_criacao = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('usuario', 'barbearia')
+        verbose_name = 'Vínculo Usuário-Barbearia'
+        verbose_name_plural = 'Vínculos Usuário-Barbearia'
+        # Regra 11 do Guia: Índice para consultas frequentes
+        indexes = [
+            models.Index(fields=['usuario', 'papel']),
+        ]
+
+    def __str__(self):
+        return f"{self.usuario.username} - {self.barbearia.nome_comercial} ({self.papel})"
