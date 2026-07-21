@@ -24,6 +24,9 @@ urlpatterns = [
     # Domínio operacional
     path('api/v1/operacional/', include('apps.operacional.urls')),
     
+    # Domínio agenda
+    path('api/v1/agenda/', include('apps.agenda.urls')),
+    
     # Documentação da API (pública - permissão explícita AllowAny)
     path(
         'api/schema/',
