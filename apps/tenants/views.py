@@ -318,46 +318,69 @@ class BarbeariaProximidadeView(APIView):
 
 
 
+# apps/tenants/views.py (ADICIONE AO FINAL DO ARQUIVO)
+
 class BarbeariaContextoListView(APIView):
     """
     GET /api/v1/tenants/barbearias/meu-contexto/
-    Lista todas as barbearias e papéis aos quais o usuário autenticado tem vínculo.
+    
+    Lista todas as barbearias às quais o usuário autenticado tem vínculo.
+    Usado pelo frontend para popular o seletor de barbearia (dropdown).
+    
+    📖 MANIFESTO (Skill 04 - View):
+    - View fina: delega toda lógica ao Service
+    - Extrai user_id do JWT (nunca do request.data)
+    - Não acessa Models/Repositories diretamente
+    
+    📖 MANIFESTO (Multi-tenancy - US06):
+    - Endpoint especial: NÃO exige barbearia_id no contexto
+    - É justamente o endpoint que lista os contextos disponíveis
     """
     permission_classes = [IsAuthenticated]
-
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = BarbeariaService()
+    
     @extend_schema(
-        responses={200: OpenApiResponse(description='Lista de contextos disponíveis')},
-        tags=['Barbearias']
+        responses={
+            200: OpenApiResponse(description='Lista de contextos disponíveis'),
+            401: OpenApiResponse(description='Não autenticado'),
+            403: OpenApiResponse(description='Perfil não requer contexto (CLIENTE_FINAL)'),
+        },
+        description='Lista todas as barbearias às quais o usuário tem vínculo ativo.',
+        tags=['Barbearias'],
     )
-    def get(self, request):
-        user = request.user
+    def get(self, request: Request) -> Response:
+        """Lista barbearias do usuário para o seletor de contexto."""
+        tipo_usuario = getattr(request.user, 'tipo_usuario', None)
         
-        # Regra 3 e 4 do Guia: values() + select_related para performance máxima
-        vinculos = VinculoUsuarioBarbearia.objects.filter(
-            usuario=user,
-            barbearia__is_deleted=False
-        ).select_related('barbearia').values(
-            'barbearia_id',
-            'barbearia__nome_comercial',
-            'barbearia__cidade',
-            'barbearia__estado',
-            'papel'
-        )
-
-        data = [
-            {
-                'barbearia_id': str(v['barbearia_id']),
-                'nome_comercial': v['barbearia__nome_comercial'],
-                'cidade': v['barbearia__cidade'],
-                'estado': v['barbearia__estado'],
-                'papel': v['papel']
-            }
-            for v in vinculos
-        ]
-
-        return Response({
-            'success': True,
-            'data': data,
-            'error': None,
-            'details': {'total': len(data)}
-        }, status=status.HTTP_200_OK)
+        # CLIENTE_FINAL não precisa de contexto de barbearia
+        if tipo_usuario == 'CLIENTE_FINAL':
+            return Response(
+                {
+                    'success': False,
+                    'error': 'Perfil CLIENTE_FINAL não requer contexto de barbearia.',
+                    'details': {'tipo_usuario': tipo_usuario}
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Extrai user_id do JWT (Regra do Manifesto)
+        user_id = request.user.id
+        
+        # Delega para o Service
+        result = self.service.listar_contextos_usuario(user_id=user_id)
+        
+        if result.success:
+            return Response(
+                {
+                    'success': True,
+                    'data': [item.model_dump() for item in result.data],
+                    'error': None,
+                    'details': {'total': len(result.data)}
+                },
+                status=status.HTTP_200_OK
+            )
+        
+        return Response(result.model_dump(), status=status.HTTP_400_BAD_REQUEST)

@@ -30,9 +30,9 @@ class UsuarioModelTest(TestCase):
         result = service.criar_usuario(dto)
 
         self.assertTrue(result.success, result.model_dump())
-        self.assertEqual(result.data["username"], "novousuario")
-        self.assertEqual(result.data["first_name"], "João")
-        self.assertEqual(result.data["last_name"], "Silva")
+        self.assertEqual(result.data.username, "novousuario")
+        self.assertEqual(result.data.first_name, "João")
+        self.assertEqual(result.data.last_name, "Silva")
 
         user = Usuario.objects.get(username="novousuario")
         self.assertEqual(user.first_name, "João")

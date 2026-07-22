@@ -22,6 +22,8 @@ from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from typing import List, Dict
+from apps.core.models import VinculoUsuarioBarbearia
 
 from apps.core.dtos import UsuarioCreateDTO, UsuarioUpdateDTO
 from apps.core.models import Usuario
@@ -162,3 +164,82 @@ class UsuarioRepository:
             return Usuario.objects.get(id=usuario_id, tipo_usuario='BARBEIRO')
         except Usuario.DoesNotExist:
             return None
+        
+
+
+# apps/core/repository.py
+"""
+📖 MANIFESTO (Skill 02 - Repository):
+"Toda persistência e leitura devem passar estritamente pela camada de Repository."
+
+📖 REGRA 3 (ConsultasSql.docx): "Traga somente os campos necessários"
+📖 REGRA 4 (ConsultasSql.docx): "Utilize values() em APIs"
+📖 REGRA 1 (ConsultasSql.docx): "Evite N+1 Queries" - select_related()
+"""
+
+
+
+class VinculoRepository:
+    """
+    Repositório para operações com vínculos Usuário-Barbearia.
+    """
+    
+    @staticmethod
+    def get_vinculos_by_usuario(usuario_id: UUID) -> List[Dict]:
+        """
+        Lista todos os vínculos ativos de um usuário com suas barbearias.
+        
+        ✅ Regra 1: select_related() evita N+1 ao acessar campos da barbearia
+        ✅ Regra 3 e 4: values() traz apenas os campos necessários (JSON leve)
+        ✅ Regra 11: Usa o índice criado em (usuario, papel)
+        """
+        return list(
+            VinculoUsuarioBarbearia.objects.filter(
+                usuario_id=usuario_id,
+                barbearia__is_deleted=False,
+                barbearia__ativo=True
+            )
+            .select_related('barbearia')
+            .values(
+                'barbearia_id',
+                'barbearia__nome_comercial',
+                'barbearia__cidade',
+                'barbearia__estado',
+                'papel'
+            )
+            .order_by('barbearia__nome_comercial')
+        )
+    
+    @staticmethod
+    def usuario_tem_vinculo_com_barbearia(
+        usuario_id: UUID, 
+        barbearia_id: UUID
+    ) -> bool:
+        """
+        Verifica se o usuário tem vínculo ativo com uma barbearia específica.
+        
+        ✅ Regra 7 (ConsultasSql.docx): Utilize exists() em vez de count()
+        """
+        return VinculoUsuarioBarbearia.objects.filter(
+            usuario_id=usuario_id,
+            barbearia_id=barbearia_id,
+            barbearia__is_deleted=False,
+            barbearia__ativo=True
+        ).exists()
+    
+    @staticmethod
+    def get_papel_usuario_na_barbearia(
+        usuario_id: UUID, 
+        barbearia_id: UUID
+    ) -> str | None:
+        """
+        Retorna o papel do usuário em uma barbearia específica.
+        Retorna None se não houver vínculo.
+        """
+        vinculo = VinculoUsuarioBarbearia.objects.filter(
+            usuario_id=usuario_id,
+            barbearia_id=barbearia_id,
+            barbearia__is_deleted=False
+        ).values('papel').first()
+        
+        return vinculo['papel'] if vinculo else None

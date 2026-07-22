@@ -111,7 +111,7 @@ class ServicoNotFoundException(DomainException):
             }
         )
 
-class DuplicateResourceException(DomainException):
+class DuplicateServiceNameException(DomainException):
     """Exceção lançada quando há tentativa de criar recurso duplicado."""
     
     def __init__(self, nome: str):

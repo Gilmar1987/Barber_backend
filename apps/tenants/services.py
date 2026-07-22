@@ -41,6 +41,8 @@ from apps.tenants.dtos import (
     ServiceResultListDTO,
     ServiceResultMessageDTO,
     ServiceResultSingleDTO,
+    BarbeariaContextoDTO,
+    ServiceResultContextoListDTO,
 )
 from apps.tenants.repository import BarbeariaRepository
 from common.events import EventType, dispatch_event
@@ -527,3 +529,59 @@ class BarbeariaService:
             is_deleted=barbearia.is_deleted,
             distancia_metros=distancia_metros,
         )
+
+    # apps/tenants/services.py (ADICIONE ESTE MÉTODO NA CLASSE BarbeariaService)
+
+    # ═══════════════════════════════════════════════════════════
+    # LISTAR CONTEXTO DO USUÁRIO (Multi-Tenant)
+    # ═══════════════════════════════════════════════════════════
+    
+    def listar_contextos_usuario(self, user_id: UUID) -> ServiceResultContextoListDTO:
+        """
+        Lista todas as barbearias às quais o usuário tem vínculo ativo.
+        
+        📖 MANIFESTO: "Services NÃO acessam request HTTP"
+        - Recebe user_id explicitamente (extraído do JWT pela View)
+        - Delega consulta ao Repository
+        - Converte dicionários do .values() para DTOs Pydantic
+        """
+        try:
+            from apps.core.repository import VinculoRepository
+            
+            # Repository retorna lista de dicionários (Regra 4 do Guia)
+            vinculos_data = VinculoRepository.get_vinculos_by_usuario(user_id)
+            
+            # Converte dicionários para DTOs Pydantic
+            contextos = [
+                BarbeariaContextoDTO(
+                    barbearia_id=v['barbearia_id'],
+                    nome_comercial=v['barbearia__nome_comercial'],
+                    cidade=v['barbearia__cidade'],
+                    estado=v['barbearia__estado'],
+                    papel=v['papel'],
+                )
+                for v in vinculos_data
+            ]
+            
+            logger.info(
+                f"Contextos listados: {len(contextos)} barbearias "
+                f"para usuário {user_id}"
+            )
+            
+            return ServiceResultContextoListDTO(
+                success=True,
+                data=contextos
+            )
+        
+        except (DatabaseError, OperationalError):
+            logging.exception('Erro de banco ao listar contextos do usuário')
+            return ServiceResultContextoListDTO(
+                success=False,
+                error="Erro interno ao listar contextos"
+            )
+        except Exception:
+            logging.exception('Erro inesperado ao listar contextos do usuário')
+            return ServiceResultContextoListDTO(
+                success=False,
+                error="Erro interno ao listar contextos"
+            )

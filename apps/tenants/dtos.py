@@ -243,3 +243,28 @@ class ProximidadeSearchDTO(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# apps/tenants/dtos.py (ADICIONE AO FINAL DO ARQUIVO)
+
+class BarbeariaContextoDTO(BaseModel):
+    """
+    DTO para representar o contexto de uma barbearia disponível para o usuário.
+    Usado pelo frontend para popular o seletor de barbearia.
+    """
+    barbearia_id: UUID = Field(..., description="ID da barbearia")
+    nome_comercial: str = Field(..., description="Nome comercial da barbearia")
+    cidade: str = Field(..., description="Cidade da barbearia")
+    estado: str = Field(..., description="Estado (UF) da barbearia")
+    papel: str = Field(..., description="Papel do usuário nesta barbearia (DONO, BARBEIRO)")
+
+
+class ServiceResultContextoListDTO(BaseModel):
+    """
+    DTO para resultado de operações que retornam uma LISTA de contextos de barbearia do usuário.
+    Ex: listar_contextos_usuario
+    """
+    success: bool
+    data: Optional[List[BarbeariaContextoDTO]] = None
+    error: Optional[str] = None
+    details: Optional[dict] = None

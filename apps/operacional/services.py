@@ -78,11 +78,7 @@ from common.exceptions import (
     ProfissionalJaVinculadoException,
     ConviteJaRespondidoException,
     ProfissionalJaHabilitadoException,
-    DuplicateResourceException,
-    
-    
-    
-
+    DuplicateServiceNameException,
 )
 
 logger = logging.getLogger(__name__)
@@ -108,7 +104,7 @@ class ServicoService:
             # 1. Validação de negócio: nome único na barbearia
             # CORREÇÃO: usar exists_by_nome_na_barbearia
             if self.repository.exists_by_nome_na_barbearia(dto.nome, barbearia_id):
-                raise DuplicateResourceException(f"Servico com nome {dto.nome} já existe na barbearia {barbearia_id}")
+                raise DuplicateServiceNameException(dto.nome)
             
             # 2. Persistência via Repository
             servico = self.repository.create(dto, barbearia_id)
@@ -182,7 +178,7 @@ class ServicoService:
                 details=details
             )
         
-        except DuplicateResourceException as e:
+        except DuplicateServiceNameException as e:
             logger.warning(f"Nome duplicado: {e.details}")
             return ServiceResultSingleDTO(
                 success=False,
