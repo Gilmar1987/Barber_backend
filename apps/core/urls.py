@@ -16,6 +16,7 @@ from apps.core.views import (
     UsuarioListView,
     UsuarioMeView,
     SelecionarTenantView,
+    
 )
 
 app_name = 'core'

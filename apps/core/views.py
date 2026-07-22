@@ -163,7 +163,9 @@ class UsuarioMeView(APIView):
     
 
 
-
+"""
+Views do domínio core (Usuários, Autenticação, Vínculos).
+"""
 
 class SelecionarTenantView(APIView):
     """
@@ -191,10 +193,20 @@ class SelecionarTenantView(APIView):
         tags=['Autenticação']
     )
     def post(self, request):
-        barbearia_id = request.data.get('barbearia_id')
-        if not barbearia_id:
+        barbearia_id_str = request.data.get('barbearia_id')
+        if not barbearia_id_str:
             return Response(
                 {'success': False, 'error': 'barbearia_id é obrigatório.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            # Garante que é um UUID válido
+            from uuid import UUID
+            barbearia_id = UUID(barbearia_id_str)
+        except ValueError:
+            return Response(
+                {'success': False, 'error': 'barbearia_id deve ser um UUID válido.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -213,20 +225,16 @@ class SelecionarTenantView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # 2. Atualiza o objeto user em memória para que o token reflita o novo contexto
+        # 2. Atualiza o objeto user EM MEMÓRIA para que o token reflita o novo contexto
+        # ✅ CORREÇÃO: Removido o .update() no banco de dados para evitar FieldDoesNotExist
         user.tenant_id = vinculo.barbearia_id
         user.tipo_usuario = vinculo.papel
         
-        # Opcional (Recomendado): Salvar como padrão para o próximo login
-        Usuario.objects.filter(id=user.id).update(
-            tenant_id=user.tenant_id, 
-            tipo_usuario=user.tipo_usuario
-        )
-
         # 3. Gerar novos tokens JWT com os claims atualizados
+        from rest_framework_simplejwt.tokens import RefreshToken
         refresh = RefreshToken.for_user(user)
         
-        # Forçar os claims no payload (garantia extra)
+        # Forçar os claims no payload (garantia extra de que o middleware lerá corretamente)
         refresh['tenant_id'] = str(user.tenant_id)
         refresh['tipo_usuario'] = user.tipo_usuario
 
@@ -241,3 +249,5 @@ class SelecionarTenantView(APIView):
             },
             'error': None
         }, status=status.HTTP_200_OK)
+
+
