@@ -395,3 +395,9 @@ class ProfissionalJaHabilitadoException(DomainException):
             message=f"O profissional {profissional_id} já está habilitado",
             details={'profissional_id': profissional_id}
         )
+
+class ConflitoDeHorarioException(Exception):
+    def __init__(self, mensagem: str = "O horário selecionado já está reservado."):
+        self.mensagem = mensagem
+        self.details = {'erro': 'conflito_de_horario'}
+        super().__init__(self.mensagem)

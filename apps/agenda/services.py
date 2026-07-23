@@ -2,6 +2,13 @@
 import logging
 from datetime import date, datetime, time, timedelta
 from typing import List
+from typing import Optional
+from uuid import UUID
+from apps.agenda.dtos import AgendamentoCreateDTO, AgendamentoResponseDTO
+from apps.agenda.repository import AgendamentoRepository
+from apps.operacional.repository import ServicoRepository, ProfissionalRepository, ServicoProfissionalRepository
+from common.exceptions import ConflitoDeHorarioException, ServicoNotFoundException, ProfissionalNotFoundException
+from common.events import EventType, dispatch_event
 from apps.agenda.dtos import (
     DisponibilidadeSearchDTO, 
     SlotDisponivelDTO, 
@@ -203,3 +210,98 @@ class DisponibilidadeService:
                 break
 
         return slots
+    
+#
+# apps/agenda/services.py (continuação)
+"""
+Serviço de agendamento.
+"""
+class AgendamentoService:
+    def __init__(self, repository: AgendamentoRepository = None):
+        self.repo = repository or AgendamentoRepository()
+        self.servico_repo = ServicoRepository()
+        self.profissional_repo = ProfissionalRepository()
+        self.vinculo_repo = ServicoProfissionalRepository()
+
+    def criar_agendamento(
+        self,
+        dto: AgendamentoCreateDTO,
+        barbearia_id: UUID,
+        cliente_id: Optional[UUID] = None
+    ):
+        try:
+            # 1. Valida se o serviço pertence à barbearia
+            servico = self.servico_repo.get_by_id_or_raise(dto.servico_id, barbearia_id)
+            
+            # 2. Valida se o profissional pertence à barbearia
+            profissional = self.profissional_repo.get_by_id_or_raise(dto.profissional_id, barbearia_id)
+            
+            # 3. Valida se o profissional está habilitado para este serviço
+            if not self.vinculo_repo.exists_by_servico_and_profissional(dto.servico_id, dto.profissional_id):
+                # Verifica se o serviço permite todos os profissionais
+                if not servico.todos_profissionais_habilitados:
+                    raise Exception(f"O profissional {profissional.usuario.username} não está habilitado para o serviço {servico.nome}.")
+
+            # 4. Delega a criação com lock para o Repository
+            agendamento = self.repo.criar_com_lock(
+                barbearia_id=barbearia_id,
+                profissional_id=dto.profissional_id,
+                servico_id=dto.servico_id,
+                data=dto.data,
+                hora_inicio=dto.hora_inicio,
+                hora_fim=self._calcular_hora_fim(dto.hora_inicio, servico.duracao_minutos),
+                nome_cliente=dto.nome_cliente,
+                telefone_cliente=dto.telefone_cliente,
+                cliente_id=cliente_id,
+                observacoes=dto.observacoes
+            )
+
+            # 5. Dispara evento (não crítico)
+            try:
+                dispatch_event(
+                    event_type=EventType.AGENDAMENTO_CRIADO, # Certifique-se de adicionar este tipo no seu enum EventType
+                    tenant_id=barbearia_id,
+                    user_id=cliente_id or agendamento.id,
+                    data={
+                        'agendamento_id': agendamento.id,
+                        'profissional': profissional.usuario.username,
+                        'servico': servico.nome,
+                        'data': str(agendamento.data),
+                        'hora': str(agendamento.hora_inicio)
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Falha ao disparar evento de agendamento: {e}")
+
+            logger.info(f"Agendamento criado com sucesso: ID {agendamento.id}")
+
+            return {
+                'success': True,
+                'data': self._to_response_dto(agendamento, servico, profissional),
+                'error': None
+            }
+
+        except (ServicoNotFoundException, ProfissionalNotFoundException, ConflitoDeHorarioException) as e:
+            logger.warning(f"Falha na criação de agendamento: {e}")
+            return {'success': False, 'data': None, 'error': str(e)}
+        except Exception as e:
+            logger.exception(f"Erro interno ao criar agendamento: {e}")
+            return {'success': False, 'data': None, 'error': 'Erro interno ao processar agendamento.'}
+
+    def _calcular_hora_fim(self, hora_inicio: time, duracao_minutos: int) -> time:
+        from datetime import datetime, timedelta
+        dt = datetime.combine(datetime.today(), hora_inicio) + timedelta(minutes=duracao_minutos)
+        return dt.time()
+
+    def _to_response_dto(self, agendamento, servico, profissional):
+        return AgendamentoResponseDTO(
+            id=agendamento.id,
+            barbearia_id=agendamento.barbearia_id,
+            profissional_nome=profissional.usuario.get_full_name() or profissional.usuario.username,
+            servico_nome=servico.nome,
+            data=agendamento.data,
+            hora_inicio=agendamento.hora_inicio,
+            hora_fim=agendamento.hora_fim,
+            status=agendamento.status,
+            nome_cliente=agendamento.nome_cliente
+        )

@@ -1,6 +1,7 @@
 # apps/agenda/repository.py
 from datetime import date
 from typing import Dict, List
+from apps.agenda.models import Agendamento
 from apps.operacional.models import (
     GradeHoraria, 
     DiaIndisponivel, 
@@ -9,7 +10,12 @@ from apps.operacional.models import (
     ServicoProfissional,
     Profissional
 )
+from django.db import transaction, IntegrityError
 from apps.tenants.models import Barbearia
+from common.exceptions import ConflitoDeHorarioException
+from typing import Optional, Tuple
+from datetime import time
+from uuid import UUID
 
 class DisponibilidadeRepository:
     """
@@ -132,3 +138,73 @@ class DisponibilidadeRepository:
         except ImportError:
             # Se o model Agendamento ainda não existe, retorna dict vazio
             return {}
+        
+
+
+class AgendamentoRepository:
+    """
+    Repositório para operações de Agendamento com controle de concorrência.
+    """
+    
+    @staticmethod
+    def criar_com_lock(
+        barbearia_id: UUID,
+        profissional_id: int,
+        servico_id: int,
+        data: date,
+        hora_inicio: time,
+        hora_fim: time,
+        nome_cliente: str,
+        telefone_cliente: str,
+        cliente_id: Optional[UUID] = None,
+        observacoes: Optional[str] = None
+    ) -> Agendamento:
+        """
+        Cria um agendamento com trava de concorrência (select_for_update).
+        """
+        with transaction.atomic():
+            # 1. TRAVA A LINHA DO PROFISSIONAL. 
+            # Qualquer outra transação que tentar ler este profissional com select_for_update 
+            # ficará em espera até esta transação terminar (COMMIT ou ROLLBACK).
+            try:
+                Profissional.objects.select_for_update().get(
+                    id=profissional_id, 
+                    barbearia_id=barbearia_id,
+                    ativo=True
+                )
+            except Profissional.DoesNotExist:
+                raise ConflitoDeHorarioException("Profissional não encontrado ou inativo nesta barbearia.")
+
+            # 2. Verifica colisão de horário (agendamentos PENDENTES ou CONFIRMADOS)
+            # Usamos a lógica de sobreposição de intervalos
+            conflito = Agendamento.objects.filter(
+                profissional_id=profissional_id,
+                data=data,
+                status__in=['PENDENTE', 'CONFIRMADO']
+            ).filter(
+                hora_inicio__lt=hora_fim,  # Início do novo < Fim do existente
+                hora_fim__gt=hora_inicio   # Fim do novo > Início do existente
+            ).exists()
+
+            if conflito:
+                raise ConflitoDeHorarioException("Conflito de horário: este slot já está reservado.")
+
+            # 3. Cria o agendamento
+            try:
+                agendamento = Agendamento.objects.create(
+                    barbearia_id=barbearia_id,
+                    profissional_id=profissional_id,
+                    servico_id=servico_id,
+                    cliente_id=cliente_id,
+                    nome_cliente=nome_cliente,
+                    telefone_cliente=telefone_cliente,
+                    data=data,
+                    hora_inicio=hora_inicio,
+                    hora_fim=hora_fim,
+                    observacoes=observacoes,
+                    status='PENDENTE'
+                )
+                return agendamento
+            except IntegrityError:
+                # Fallback de segurança caso o UniqueConstraint do banco seja acionado
+                raise ConflitoDeHorarioException("Conflito de horário detectado pelo banco de dados.")

@@ -9,10 +9,11 @@
 - Nomes de URL descritivos (name=)
 """
 from django.urls import path
-from apps.agenda.views import DisponibilidadeView
+from apps.agenda.views import DisponibilidadeView, AgendamentoCreateView
 
 app_name = 'agenda'
 
 urlpatterns = [
     path('disponibilidade/', DisponibilidadeView.as_view(), name='disponibilidade'),
+    path('agendamentos/', AgendamentoCreateView.as_view(), name='agendamento-create'),
 ]

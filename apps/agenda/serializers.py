@@ -1,7 +1,7 @@
 # apps/agenda/serializers.py
 from rest_framework import serializers
 from datetime import date, timedelta
-from apps.agenda.dtos import DisponibilidadeSearchDTO
+from apps.agenda.dtos import DisponibilidadeSearchDTO, AgendamentoCreateDTO
 
 class DisponibilidadeSearchSerializer(serializers.Serializer):
     """Serializer para validar parâmetros de busca de disponibilidade."""
@@ -41,3 +41,29 @@ class SlotDisponivelSerializer(serializers.Serializer):
     data = serializers.DateField()
     horario_inicio = serializers.TimeField()
     horario_fim = serializers.TimeField()
+
+
+class AgendamentoCreateSerializer(serializers.Serializer):
+    """Serializer para criar agendamentos."""
+    profissional_id = serializers.IntegerField(min_value=1)
+    servico_id = serializers.IntegerField(min_value=1)
+    data = serializers.DateField()
+    hora_inicio = serializers.TimeField()
+    nome_cliente = serializers.CharField(min_length=3, max_length=255)
+    telefone_cliente = serializers.CharField(min_length=8, max_length=20)
+    observacoes = serializers.CharField(required=False, allow_blank=True)
+
+    def to_dto(self) -> AgendamentoCreateDTO:
+        """Converte dados validados para DTO Pydantic."""
+        return AgendamentoCreateDTO(
+            profissional_id=self.validated_data['profissional_id'],
+            servico_id=self.validated_data['servico_id'],
+            data=self.validated_data['data'],
+            hora_inicio=self.validated_data['hora_inicio'],
+            nome_cliente=self.validated_data['nome_cliente'],
+            telefone_cliente=self.validated_data['telefone_cliente'],
+            observacoes=self.validated_data.get('observacoes')
+        )
+
+
+   
