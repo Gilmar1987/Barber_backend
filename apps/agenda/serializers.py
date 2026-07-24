@@ -45,6 +45,7 @@ class SlotDisponivelSerializer(serializers.Serializer):
 
 class AgendamentoCreateSerializer(serializers.Serializer):
     """Serializer para criar agendamentos."""
+    barbearia_id = serializers.UUIDField()
     profissional_id = serializers.IntegerField(min_value=1)
     servico_id = serializers.IntegerField(min_value=1)
     data = serializers.DateField()
@@ -56,6 +57,7 @@ class AgendamentoCreateSerializer(serializers.Serializer):
     def to_dto(self) -> AgendamentoCreateDTO:
         """Converte dados validados para DTO Pydantic."""
         return AgendamentoCreateDTO(
+            barbearia_id=self.validated_data['barbearia_id'],
             profissional_id=self.validated_data['profissional_id'],
             servico_id=self.validated_data['servico_id'],
             data=self.validated_data['data'],

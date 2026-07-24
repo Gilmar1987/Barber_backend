@@ -7,8 +7,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes, OpenApiResponse
 from apps.agenda.serializers import DisponibilidadeSearchSerializer, SlotDisponivelSerializer, AgendamentoCreateSerializer
-from apps.agenda.services import DisponibilidadeService, AgendamentoService
+from apps.agenda.services import DisponibilidadeService, AgendamentoService, AgendamentoClienteService, AgendamentoClienteDeleteService
 from apps.agenda.dtos import AgendamentoCreateDTO
+from django.utils import timezone
+from datetime import datetime
 
 class DisponibilidadePagination(PageNumberPagination):
     """Paginação para slots de disponibilidade."""
@@ -138,28 +140,155 @@ class AgendamentoCreateView(APIView):
         },
         tags=['Agenda']
     )
-    def post(self, request):
-        # 1. Extrai o contexto multi-tenant (usando o helper que já funcionou)
-        try:
-            from apps.operacional.views import _get_barbearia_id_from_jwt
-            barbearia_id = _get_barbearia_id_from_jwt(request)
-        except ValueError as e:
-            return Response({'success': False, 'error': str(e)}, status=status.HTTP_403_FORBIDDEN)
+    # apps/agenda/views.py (AgendamentoCreateView)
 
-        # 2. Valida o payload
+
+    def post(self, request):
         serializer = AgendamentoCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response({'success': False, 'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
         dto: AgendamentoCreateDTO = serializer.to_dto()
-        cliente_id = request.user.id if request.user.is_authenticated else None
+        tipo_usuario = getattr(request.user, 'tipo_usuario', None)
 
-        # 3. Delega ao Service
-        result = self.service.criar_agendamento(dto=dto, barbearia_id=barbearia_id, cliente_id=cliente_id)
+        # Validar se a data não é menor que atual
+        agendamento_dateTime = datetime.combine(dto.data, dto.hora_inicio)
 
-        if result['success']:
-            return Response(result, status=status.HTTP_201_CREATED)
+        aware_datetime = timezone.make_aware(agendamento_dateTime)
+        if aware_datetime < timezone.now():
+            return Response({'success': False, 'error': 'Não é permitido agendar em uma data/hora passada.'}, status=400)
+
+        # LÓGICA DE RESOLUÇÃO DO TENANT:
+        if tipo_usuario in ('DONO', 'BARBEIRO'):
+            # Se for dono/barbeiro, valida se a barbearia do payload bate com a do JWT (segurança extra)
+            jwt_barbearia_id = getattr(request.user, 'tenant_id', None)
+            if str(dto.barbearia_id) != str(jwt_barbearia_id):
+                return Response({'success': False, 'error': 'Você só pode agendar na sua barbearia vinculada.'}, status=403)
+            barbearia_id = dto.barbearia_id
+            cliente_id = None # Agendamento feito pelo staff, não é "meu agendamento" de cliente
+            
+        elif tipo_usuario == 'CLIENTE_FINAL':
+            # Cliente final informa em qual barbearia quer agendar
+            barbearia_id = dto.barbearia_id
+            cliente_id = request.user.id # Vincula o agendamento ao cliente logado
+            
         else:
-            # Se for conflito de horário, retorna 409 Conflict, senão 400
+            return Response({'success': False, 'error': 'Perfil não autorizado.'}, status=403)
+
+        # Delega ao Service (que já faz a validação se o profissional/serviço pertence a essa barbearia)
+        result = self.service.criar_agendamento(
+            dto=dto, 
+            barbearia_id=barbearia_id, 
+            cliente_id=cliente_id
+            )
+
+        if result.get('success'):
+            response_data = result.get('data')
+            if hasattr(response_data, 'model_dump'):
+                return Response({
+                    'success': True, 
+                    'data': response_data.model_dump(),
+                    'erro': result.get('erro'),
+                    'message': result.get('message'),
+                    'details': result.get('details'),
+
+                    }, status=status.HTTP_201_CREATED)
+        else:
             status_code = status.HTTP_409_CONFLICT if "Conflito de horário" in (result.get('error') or '') else status.HTTP_400_BAD_REQUEST
-            return Response(result, status=status_code)
+            return Response(
+                result, 
+                status=status_code)
+       
+        
+
+
+class MeusAgendamentosView(APIView):
+    """
+    GET /api/v1/agenda/meus-agendamentos/
+    Lista apenas os agendamentos do cliente autenticado.
+    """
+    permission_classes = [IsAuthenticated] # Garante que só usuários logados acessam
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = AgendamentoClienteService()
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(description='Lista de agendamentos do cliente'),
+            401: OpenApiResponse(description='Não autenticado'),
+            403: OpenApiResponse(description='Apenas CLIENTE_FINAL pode acessar este endpoint')
+        },
+        tags=['Agenda - Cliente']
+    )
+    def get(self, request):
+        # 1. Validação de Perfil (Opcional, mas recomendado)
+        tipo_usuario = getattr(request.user, 'tipo_usuario', None)
+        if tipo_usuario != 'CLIENTE_FINAL':
+            return Response(
+                {'success': False, 'error': 'Acesso restrito a clientes finais.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 2. Extração segura do ID (Vem do JWT, impossível de forjar)
+        cliente_id = request.user.id
+
+        # 3. Delegação ao Service
+        result = self.service.listar_meus_agendamentos(cliente_id=cliente_id)
+
+        # 4. Resposta formatada
+        if result.success:
+            return Response({
+                'success': True,
+                'data': [item.model_dump() for item in result.data],
+                'error': None,
+                'details': {'total': len(result.data)}
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response(result.model_dump(), status=status.HTTP_400_BAD_REQUEST)
+        
+class AgendamentoClienteDeleteView(APIView):
+    """
+    DELETE /api/v1/agenda/meus-agendamentos/
+    Exclui todos os agendamentos do cliente autenticado.
+    """
+    permission_classes = [IsAuthenticated] # Garante que só usuários logados acessam
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(description='Agendamentos excluídos com sucesso'),
+            401: OpenApiResponse(description='Não autenticado'),
+            403: OpenApiResponse(description='Apenas CLIENTE_FINAL pode acessar este endpoint')
+        },
+        tags=['Agenda - Cliente']
+    )
+    def delete(self, request):
+        # 1. Validação de Perfil (Opcional, mas recomendado)
+        tipo_usuario = getattr(request.user, 'tipo_usuario', None)
+        if tipo_usuario != 'CLIENTE_FINAL':
+            return Response(
+                {'success': False, 'error': 'Acesso restrito a clientes finais.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 2. Extração segura do ID (Vem do JWT, impossível de forjar)
+        cliente_id = request.user.id
+
+        # 3. Delegação ao Service
+        result = self.service.deletar_agus_agendamentos(cliente_id=cliente_id)
+
+        # 4. Resposta formatada
+        if result.success:
+            return Response({
+                'success': True,
+                'message': result.message,
+                'error': None,
+                'details': None
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response(result.model_dump(), status=status.HTTP_400_BAD_REQUEST)
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.service = AgendamentoClienteDeleteService()
+        

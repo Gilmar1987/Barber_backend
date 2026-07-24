@@ -12,7 +12,14 @@ from common.events import EventType, dispatch_event
 from apps.agenda.dtos import (
     DisponibilidadeSearchDTO, 
     SlotDisponivelDTO, 
-    DisponibilidadeResponseDTO
+    DisponibilidadeResponseDTO,
+    AgendamentoCreateDTO,
+    AgendamentoResponseDTO,
+    AgendamentoCreateDTO,
+    AgendamentoResponseDTO,
+    AgendamentoClienteResponseDTO,
+    ServiceResultListDTO,
+    ServiceResultMessageDTO,
 )
 from apps.agenda.repository import DisponibilidadeRepository
 
@@ -305,3 +312,73 @@ class AgendamentoService:
             status=agendamento.status,
             nome_cliente=agendamento.nome_cliente
         )
+    
+
+
+
+class AgendamentoClienteService:
+    """Service para operações de agendamento voltadas ao Cliente Final."""
+    
+    def __init__(self, repository: AgendamentoRepository = None):
+        self.repo = repository or AgendamentoRepository()
+
+    def listar_meus_agendamentos(self, cliente_id: UUID) -> ServiceResultListDTO:
+        """
+        Lista os agendamentos do cliente logado.
+        """
+        try:
+            agendamentos = self.repo.get_by_cliente(cliente_id)
+            
+            # Converte models para DTOs seguros
+            dtos = [
+                AgendamentoClienteResponseDTO(
+                    id=ag.id,
+                    barbearia_nome=ag.barbearia.nome_comercial,
+                    profissional_nome=ag.profissional.usuario.get_full_name() or ag.profissional.usuario.username,
+                    servico_nome=ag.servico.nome,
+                    data=ag.data,
+                    hora_inicio=ag.hora_inicio,
+                    hora_fim=ag.hora_fim,
+                    status=ag.status,
+                    observacoes=ag.observacoes
+                )
+                for ag in agendamentos
+            ]
+            
+            return ServiceResultListDTO(
+                success=True,
+                data=dtos,
+                error=None
+            )
+            
+        except Exception as e:
+            logger.exception(f"Erro ao listar agendamentos do cliente {cliente_id}: {e}")
+            return ServiceResultListDTO(
+                success=False,
+                data=[],
+                error="Erro interno ao buscar seus agendamentos."
+            )
+        
+class AgendamentoClienteDeleteService:
+    """Service para operações de exclusão de agendamentos voltadas ao Cliente Final."""
+    
+    def __init__(self, repository: AgendamentoRepository = None):
+        self.repo = repository or AgendamentoRepository()
+        
+    def deletar_agus_agendamentos(self, cliente_id: UUID) -> ServiceResultMessageDTO:
+        """
+        Exclui todos os agendamentos do cliente logado.
+        """
+        try:
+            self.repo.delete_by_agendamento(cliente_id)
+            return ServiceResultMessageDTO(
+                success=True,
+                message="Todos os agendamentos do cliente foram excluídos com sucesso."
+            )
+        except Exception as e:
+            logger.exception(f"Erro ao excluir agendamentos do cliente {cliente_id}: {e}")
+            return ServiceResultMessageDTO(
+                success=False,
+                message="Erro interno ao excluir agendamentos do cliente."
+            )
+        

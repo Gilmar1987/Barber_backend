@@ -208,3 +208,34 @@ class AgendamentoRepository:
             except IntegrityError:
                 # Fallback de segurança caso o UniqueConstraint do banco seja acionado
                 raise ConflitoDeHorarioException("Conflito de horário detectado pelo banco de dados.")
+            
+
+    
+    @staticmethod
+    def get_by_cliente(cliente_id: UUID) -> List[Agendamento]:
+        """
+        Lista todos os agendamentos de um cliente específico.
+        
+        ✅ Regra 1 (ConsultasSql): Usa select_related para evitar N+1 queries.
+        ✅ Segurança: Filtra estritamente pelo cliente_id do usuário logado.
+        """
+        return list(
+            Agendamento.objects.filter(
+                cliente_id=cliente_id,
+                barbearia__is_deleted=False  # Segurança extra: não mostra barbearias deletadas
+            )
+            .select_related(
+                'barbearia', 
+                'profissional__usuario', 
+                'servico'
+            )
+            .order_by('-data', '-hora_inicio') # Mais recentes primeiro
+        )
+    
+    @staticmethod
+
+    def delete_by_agendamento(cliente_id: UUID) -> None:
+        """
+        Excl todos os agendamentos de um cliente específico.
+        """
+        Agendamento.objects.filter(cliente_id=cliente_id).delete()
