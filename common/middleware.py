@@ -174,37 +174,62 @@ class TenantContextMiddleware(MiddlewareMixin):
         return False
 
 
+# common/middleware.py (Substitua APENAS a classe TenantEnforcementMiddleware por esta)
+
 class TenantEnforcementMiddleware(MiddlewareMixin):
     """
     Middleware que força o isolamento multi-tenant.
-    Se o usuário está autenticado mas não tem tenant_id, retorna 403.
+    Verifica se o usuário autenticado possui um tenant_id válido.
     """
-    
-    # Rotas que não exigem tenant (ex: cadastro, login)
     EXEMPT_ROUTES = [
+        '/api/schema/',
         '/api/v1/auth/',
         '/api/v1/usuarios/create/',
         '/swagger/',
         '/redoc/',
         '/admin/',
     ]
-    
+
     def process_request(self, request: HttpRequest) -> Optional[HttpResponse]:
-        """Verifica se o usuário autenticado tem tenant_id."""
         from django.http import JsonResponse
         
-        # Rotas isentas
+        # 1. Pula verificação para rotas públicas
         if any(request.path.startswith(route) for route in self.EXEMPT_ROUTES):
             return None
         
-        # Usuário não autenticado
-        if not hasattr(request, 'user') or not request.user.is_authenticated:
-            return None
-        
-        # Verifica se tem tenant_id
+        # 2. Tenta obter o tenant_id do objeto user (injetado por sessão ou middleware anterior)
         tenant_id = getattr(request.user, 'tenant_id', None)
+        tipo_usuario = getattr(request.user, 'tipo_usuario', None)
+        
+        # 3. Se não encontrou, tenta extrair diretamente do Token JWT no cabeçalho
+        # Isso resolve o problema de ordem de execução (Middleware roda antes da Auth do DRF)
         if not tenant_id:
-            # US06: Retorna 403 se tentar acessar sem tenant
+            auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+            if auth_header.startswith('Bearer '):
+                try:
+                    from rest_framework_simplejwt.tokens import AccessToken
+                    token = auth_header.split(' ')[1]
+                    validated_token = AccessToken(token)
+                    
+                    tenant_id = validated_token.get('tenant_id')
+                    tipo_usuario = tipo_usuario or validated_token.get('tipo_usuario')
+                    
+                    # Injeta no objeto user para que as Views e outros middlewares possam usar
+                    if hasattr(request, 'user'):
+                        request.user.tenant_id = tenant_id
+                        request.user.tipo_usuario = tipo_usuario
+                        
+                except Exception:
+                    # Token inválido, expirado ou malformado. 
+                    # Não bloqueamos aqui, deixamos o DRF Authentication lidar com isso na View.
+                    pass
+
+        # 4. Regra de Negócio: Se há um usuário autenticado (ou um token foi fornecido),
+        # mas ele não tem tenant_id e NÃO é CLIENTE_FINAL, então negamos o acesso.
+        is_authenticated = hasattr(request, 'user') and request.user.is_authenticated
+        has_token = request.META.get('HTTP_AUTHORIZATION', '').startswith('Bearer ')
+        
+        if (is_authenticated or has_token) and not tenant_id and tipo_usuario != 'CLIENTE_FINAL':
             return JsonResponse(
                 {
                     'success': False,
@@ -212,5 +237,5 @@ class TenantEnforcementMiddleware(MiddlewareMixin):
                 },
                 status=403
             )
-        
+            
         return None

@@ -54,7 +54,7 @@ class BrevoEmailService:
             True se enviado com sucesso, False caso contrário.
         """
         api_key = getattr(settings, 'BREVO_API_KEY', None)
-        sender_email = de_email or getattr(settings, 'BREVO_SENDER_EMAIL', 'noreply@barberhub.com')
+        sender_email = de_email or getattr(settings, 'BREVO_SENDER_EMAIL')
         
         if not api_key:
             logger.warning(
