@@ -1,4 +1,4 @@
-# [Domínio: common] [Skill: email]
+# [Domínio: common/email_service.py] [Skill: email]
 """
 📖 MANIFESTO (Integração Externa):
 "Serviços externos (email, SMS) devem ser abstraídos em camadas isoladas."
@@ -196,5 +196,82 @@ class BrevoEmailService:
             para=email_barbeiro,
             nome_destinatario=nome_barbeiro,
             assunto=f"Convite para trabalhar na {nome_barbearia}",
+            html_content=html_content,
+        )
+    
+    @staticmethod
+    def enviar_confirmacao_agendamento_profissional(
+        nome_profissional: str,
+        email_profissional: str,
+        nome_cliente: str,
+        telefone_cliente: str,
+        servico: str,
+        data: str,
+        hora: str,
+        nome_barbearia: str,
+    ) -> bool:
+        """Envia email de novo agendamento para o profissional."""
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h1 style="color: #2c3e50;">💈 Novo Agendamento Recebido!</h1>
+                <p>Olá <strong>{nome_profissional}</strong>,</p>
+                <p>Você tem um novo agendamento na <strong>{nome_barbearia}</strong>:</p>
+                
+                <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <ul style="list-style: none; padding: 0;">
+                        <li><strong>👤 Cliente:</strong> {nome_cliente} ({telefone_cliente})</li>
+                        <li><strong>✂️ Serviço:</strong> {servico}</li>
+                        <li><strong>📅 Data:</strong> {data} às {hora}</li>
+                    </ul>
+                </div>
+                <p style="font-size: 12px; color: #7f8c8d;">Acesse o sistema BarberHub para gerenciar sua agenda.</p>
+            </div>
+        </body>
+        </html>
+        """
+        return BrevoEmailService.enviar_email(
+            para=email_profissional,
+            nome_destinatario=nome_profissional,
+            assunto=f"Novo Agendamento: {servico} em {data}",
+            html_content=html_content,
+        )
+
+    @staticmethod
+    def enviar_confirmacao_agendamento_cliente(
+        nome_cliente: str,
+        email_cliente: str,
+        servico: str,
+        data: str,
+        hora: str,
+        nome_barbearia: str,
+        nome_profissional: str,
+    ) -> bool:
+        """Envia email de confirmação de agendamento para o cliente final."""
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h1 style="color: #2c3e50;">✅ Agendamento Confirmado!</h1>
+                <p>Olá <strong>{nome_cliente}</strong>,</p>
+                <p>Seu agendamento na <strong>{nome_barbearia}</strong> foi confirmado com sucesso:</p>
+                
+                <div style="background-color: #e8f5e9; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #4caf50;">
+                    <ul style="list-style: none; padding: 0;">
+                        <li><strong>✂️ Serviço:</strong> {servico}</li>
+                        <li><strong>👤 Profissional:</strong> {nome_profissional}</li>
+                        <li><strong>📅 Data:</strong> {data} às {hora}</li>
+                    </ul>
+                </div>
+                <p style="font-size: 12px; color: #7f8c8d;">Precisa alterar ou cancelar? Acesse o sistema ou entre em contato com a barbearia.</p>
+            </div>
+        </body>
+        </html>
+        """
+        return BrevoEmailService.enviar_email(
+            para=email_cliente,
+            nome_destinatario=nome_cliente,
+            assunto=f"Confirmação de Agendamento - {nome_barbearia}",
             html_content=html_content,
         )

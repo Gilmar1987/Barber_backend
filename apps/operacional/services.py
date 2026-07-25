@@ -24,6 +24,8 @@ from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
 from django.db import DatabaseError, OperationalError
+from django.db import transaction
+from apps.operacional.tasks import enviar_convite_profissional_task
 
 from apps.operacional.dtos import (
     DiaIndisponivelCreateDTO,
@@ -563,7 +565,21 @@ class ConviteProfissionalService:
                 usuario_id=usuario.id,
                 criado_por=user_id
             )
+
+           
             
+            
+            transaction.on_commit(
+                lambda: enviar_convite_profissional_task.delay(convite.id)
+            )
+            if usuario_existente:
+                mensagem = f"Convite criado para {dto.email}. O e-mail de notificação está sendo processado em segundo plano."
+            else:
+                mensagem = f"Conta criada para {dto.email} e convite gerado. O e-mail de boas-vindas está sendo processado em segundo plano."
+            logger.info(f"Convite criado: {convite.id} | Barbeiro: {dto.email} | Barbearia: {barbearia_id}")
+
+            response_dto = self._to_convite_response_dto(convite)
+
             # 6. Envia email via Brevo
             barbearia = Barbearia.objects.get(id=barbearia_id)
             frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')

@@ -21,7 +21,8 @@ ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
 # BREVO (Email Service)
 # ═══════════════════════════════════════════════════════════
 BREVO_API_KEY = os.getenv('BREVO_API_KEY', '')
-BREVO_SENDER_EMAIL = os.getenv('BREVO_SENDER_EMAIL', 'noreply@barberhub.com')
+BREVO_SENDER_EMAIL = os.getenv('BREVO_SENDER_EMAIL')
+BREVO_SENDER_NAME = os.getenv('BREVO_SENDER_NAME', 'BarberHub')
 
 # ═══════════════════════════════════════════════════════════
 # FRONTEND URL (para links de aceitação de convites)

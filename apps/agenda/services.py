@@ -1,6 +1,9 @@
 # apps/agenda/services.py
 import logging
 from datetime import date, datetime, time, timedelta
+from datetime import datetime
+from django.db import transaction
+from apps.agenda.tasks import enviar_notificacoes_agendamento
 from typing import List
 from typing import Optional
 from uuid import UUID
@@ -262,6 +265,16 @@ class AgendamentoService:
                 cliente_id=cliente_id,
                 observacoes=dto.observacoes
             )
+
+            transaction.on_commit(
+                lambda: enviar_notificacoes_agendamento.delay(agendamento.id)
+            )
+
+            logger.info(f"Agendamento criado: ID {agendamento.id} | "
+                f"Cliente: {dto.nome_cliente} | "
+                f"Data: {dto.data} | "
+                f"Horário: {dto.hora_inicio} | "
+                f"Profissional: {profissional.usuario.username}")
 
             # 5. Dispara evento (não crítico)
             try:
